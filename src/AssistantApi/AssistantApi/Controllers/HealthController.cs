@@ -25,10 +25,13 @@ public class HealthController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetHealth(CancellationToken ct)
     {
-        var (ollamaStatus, qdrantStatus) = await (
-            CheckOllamaAsync(ct),
-            CheckQdrantAsync(ct)
-        );
+        var ollamaTask = CheckOllamaAsync(ct);
+        var qdrantTask = CheckQdrantAsync(ct);
+
+        await Task.WhenAll(ollamaTask, qdrantTask);
+
+        var ollamaStatus = await ollamaTask;
+        var qdrantStatus = await qdrantTask;
 
         var isHealthy = ollamaStatus.Status == "ok" && qdrantStatus.Status == "ok";
 

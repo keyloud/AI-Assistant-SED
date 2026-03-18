@@ -5,8 +5,8 @@ using Microsoft.Extensions.Options;
 namespace AssistantApi.Infrastructure.OllamaClient;
 
 /// <summary>
-/// Phase 2: implement GenerateAsync with POST /api/chat.
-/// Phase 4: implement embedding via POST /api/embeddings.
+/// HTTP-клиент для взаимодействия с локальным API Ollama.
+/// Обеспечивает генерацию текста и работу с эмбеддингами.
 /// </summary>
 public class OllamaHttpClient : ILlmService
 {
@@ -24,6 +24,13 @@ public class OllamaHttpClient : ILlmService
         _logger = logger;
     }
 
+    /// <summary>
+    /// Асинхронная генерация полного ответа от модели.
+    /// </summary>
+    /// <param name="prompt">Сформированный промпт для модели.</param>
+    /// <param name="history">История текущего диалога.</param>
+    /// <param name="ct">Токен отмены операции.</param>
+    /// <returns>Строка с ответом ассистента.</returns>
     public Task<string> GenerateAsync(
         string prompt,
         List<ConversationMessage>? history = null,
@@ -33,6 +40,13 @@ public class OllamaHttpClient : ILlmService
         throw new NotImplementedException("Implemented in Phase 2");
     }
 
+    /// <summary>
+    /// Потоковая генерация ответа от модели (Server-Sent Events).
+    /// </summary>
+    /// <param name="prompt">Сформированный промпт для модели.</param>
+    /// <param name="history">История текущего диалога.</param>
+    /// <param name="ct">Токен отмены операции.</param>
+    /// <returns>Асинхронный поток строк.</returns>
     public IAsyncEnumerable<string> GenerateStreamAsync(
         string prompt,
         List<ConversationMessage>? history = null,

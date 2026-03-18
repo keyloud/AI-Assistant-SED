@@ -12,6 +12,10 @@ import sys
 
 
 def main() -> None:
+    """
+    Основная точка входа для процесса инъекции данных (ingestion).
+    Разбирает аргументы командной строки и координирует работу пайплайна загрузки.
+    """
     parser = argparse.ArgumentParser(description="Ingest knowledge base documents into Qdrant")
     parser.add_argument("--source", required=True, help="Path to source documents directory")
     parser.add_argument("--collection", default="knowledge_base", help="Qdrant collection name")
