@@ -1,3 +1,5 @@
+using AssistantApi.Services.Interfaces;
+
 namespace AssistantApi.Pipeline.Steps;
 
 /// <summary>
@@ -5,10 +7,28 @@ namespace AssistantApi.Pipeline.Steps;
 /// </summary>
 public class LlmGenerationStep : IPipelineStep
 {
-    public Task ExecuteAsync(PipelineContext context, CancellationToken ct = default)
+    private readonly ILlmService _llmService;
+    private readonly ILogger<LlmGenerationStep> _logger;
+
+    public LlmGenerationStep(ILlmService llmService, ILogger<LlmGenerationStep> logger)
     {
-        // TODO Phase 2: call ILlmService.GenerateAsync with AugmentedPrompt and History
-        context.LlmResponse = "[Phase 2: LLM not yet connected]";
-        return Task.CompletedTask;
+        _llmService = llmService;
+        _logger = logger;
+    }
+
+    public async Task ExecuteAsync(PipelineContext context, CancellationToken ct = default)
+    {
+        try
+        {
+            context.LlmResponse = await _llmService.GenerateAsync(
+                context.AugmentedPrompt,
+                context.History,
+                ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "LLM generation failed, returning fallback response");
+            context.LlmResponse = "Сервис LLM временно недоступен. Убедитесь, что Ollama запущена.";
+        }
     }
 }

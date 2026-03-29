@@ -12,6 +12,10 @@ public class PipelineContext
     public string UserId { get; set; } = string.Empty;
     public List<ConversationMessage> History { get; set; } = new();
 
+    // Document upload (for validation)
+    public string? UploadedDocumentText { get; set; }
+    public string? UploadedFileName { get; set; }
+
     // Step 1: Classification
     public RequestType RequestType { get; set; }
     public float ClassificationConfidence { get; set; }
