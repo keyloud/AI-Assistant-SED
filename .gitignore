@@ -9,6 +9,7 @@
 node_modules/
 dist/
 .env
+*.tsbuildinfo
 
 # Python
 __pycache__/
