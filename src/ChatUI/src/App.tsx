@@ -42,7 +42,6 @@ export default function App() {
             <input
               type="text"
               placeholder="Введите вопрос по документообороту..."
-              disabled
               className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm bg-gray-50 text-gray-400 cursor-not-allowed focus:outline-none"
             />
             <button

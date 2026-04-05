@@ -12,5 +12,5 @@ public class OllamaOptions
     public string Model { get; set; } = "qwen2.5:7b";
     
     /// <summary>Название модели для генерации эмбеддингов.</summary>
-    public string EmbeddingModel { get; set; } = "nomic-embed-text";
+    public string EmbeddingModel { get; set; } = "bge-m3";
 }

@@ -1,14 +1,27 @@
+using AssistantApi.Models.Enums;
+
 namespace AssistantApi.Pipeline.Steps;
 
 /// <summary>
-/// Phase 2: send AugmentedPrompt to Ollama and populate LlmResponse.
+/// MVP placeholder for LLM generation.
 /// </summary>
 public class LlmGenerationStep : IPipelineStep
 {
     public Task ExecuteAsync(PipelineContext context, CancellationToken ct = default)
     {
-        // TODO Phase 2: call ILlmService.GenerateAsync with AugmentedPrompt and History
-        context.LlmResponse = "[Phase 2: LLM not yet connected]";
+        if (context.RequestType == RequestType.DocumentValidationQuery)
+        {
+            context.ValidationRemarks =
+            [
+                "MVP placeholder: проверка обязательных реквизитов пока не подключена.",
+                "Следующий шаг: связать extraction текста и сравнение с эталонным шаблоном."
+            ];
+
+            context.LlmResponse = "Сформирован предварительный список замечаний.";
+            return Task.CompletedTask;
+        }
+
+        context.LlmResponse = "[MVP placeholder: LLM generation for KB Q&A is not connected yet]";
         return Task.CompletedTask;
     }
 }

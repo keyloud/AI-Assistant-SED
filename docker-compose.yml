@@ -8,7 +8,7 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:6333/healthz || exit 1"]
+      test: ["CMD-SHELL", "bash -lc 'cat < /dev/null > /dev/tcp/localhost/6333'"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -21,7 +21,7 @@ services:
     volumes:
       - ollama_models:/root/.ollama
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:11434/api/version || exit 1"]
+      test: ["CMD-SHELL", "bash -lc 'cat < /dev/null > /dev/tcp/localhost/11434'"]
       interval: 15s
       timeout: 10s
       retries: 10
@@ -44,8 +44,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Ollama__BaseUrl: http://ollama:11434
-      Ollama__Model: qwen2.5:7b
-      Ollama__EmbeddingModel: nomic-embed-text
+      Ollama__Model: qwen2.5:3b
+      Ollama__EmbeddingModel: bge-m3
       Qdrant__Host: qdrant
       Qdrant__Port: 6333
       Qdrant__CollectionName: knowledge_base

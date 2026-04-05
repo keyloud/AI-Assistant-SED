@@ -8,26 +8,23 @@ public class PipelineContext
     // Input
     public string SessionId { get; set; } = string.Empty;
     public string UserMessage { get; set; } = string.Empty;
-    public string? DocumentId { get; set; }
-    public string UserId { get; set; } = string.Empty;
+    public string? AttachedFileName { get; set; }
+    public string? AttachedFileContent { get; set; }
     public List<ConversationMessage> History { get; set; } = new();
 
     // Step 1: Classification
     public RequestType RequestType { get; set; }
     public float ClassificationConfidence { get; set; }
 
-    // Step 2: Context extraction
-    public DocumentContext? DocumentContext { get; set; }
-    public UserContext? UserContext { get; set; }
-
-    // Step 3: RAG search
+    // Step 2: RAG search
     public List<KnowledgeChunk> RagResults { get; set; } = new();
 
-    // Step 4: Prompt building
+    // Step 3: Prompt building
     public string AugmentedPrompt { get; set; } = string.Empty;
 
-    // Step 5: LLM generation
+    // Step 4: LLM generation / rule-based remarks
     public string LlmResponse { get; set; } = string.Empty;
+    public List<string> ValidationRemarks { get; set; } = new();
 
     // Observability
     public Dictionary<string, long> StepDurationsMs { get; set; } = new();

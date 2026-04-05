@@ -1,5 +1,4 @@
 using AssistantApi.Models.Domain;
-using AssistantApi.Models.Enums;
 using AssistantApi.Services.Interfaces;
 using Microsoft.Extensions.Options;
 
@@ -26,7 +25,6 @@ public class QdrantHttpClient : IRagService
 
     public Task<List<KnowledgeChunk>> SearchAsync(
         string query,
-        RequestType requestType,
         int topK = 3,
         CancellationToken ct = default)
     {

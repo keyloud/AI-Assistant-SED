@@ -21,7 +21,7 @@ public class HealthController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>GET /api/health — checks Ollama, Qdrant, and SED mock connectivity.</summary>
+    /// <summary>GET /api/health — checks Ollama and Qdrant connectivity.</summary>
     [HttpGet]
     public async Task<IActionResult> GetHealth(CancellationToken ct)
     {
@@ -41,8 +41,7 @@ public class HealthController : ControllerBase
             Services = new Dictionary<string, ServiceStatus>
             {
                 ["ollama"] = ollamaStatus,
-                ["qdrant"] = qdrantStatus,
-                ["sed"]    = new ServiceStatus { Status = "ok", Details = "mock mode" }
+                ["qdrant"] = qdrantStatus
             },
             Timestamp = DateTime.UtcNow
         };
