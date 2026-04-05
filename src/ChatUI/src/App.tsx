@@ -1,59 +1,257 @@
+const navItems = [
+  { id: 'chats', label: 'Чаты', icon: 'chat', active: true },
+  { id: 'documents', label: 'Все документы', icon: 'description', active: false },
+  { id: 'archive', label: 'Архив', icon: 'inventory_2', active: false },
+  { id: 'trash', label: 'Корзина', icon: 'delete', active: false },
+]
+
+const hiddenNavItems = [
+  { id: 'search', label: 'Поиск в архиве', icon: 'search' },
+  { id: 'insights', label: 'AI Insights', icon: 'auto_awesome' },
+]
+
+const remarks = [
+  {
+    id: 'high',
+    level: 'HIGH',
+    location: 'Страница 4',
+    title: 'Отсутствует подпись согласующей стороны',
+    text: 'Блок подписи продавца пустой, хотя документ отмечен как завершенный.',
+    color: 'text-[#ba1a1a]',
+    border: 'border-[#ba1a1a]',
+    badge: 'bg-[#ffdad6] text-[#93000a]',
+    icon: 'error',
+  },
+  {
+    id: 'medium',
+    level: 'MEDIUM',
+    location: 'Раздел 8.2',
+    title: 'Неоднозначный срок прекращения договора',
+    text: 'Указан notice period, но не уточнен формат календарных дней.',
+    color: 'text-[#943700]',
+    border: 'border-[#943700]',
+    badge: 'bg-[#ffdbcd] text-[#7d2d00]',
+    icon: 'warning',
+  },
+  {
+    id: 'low',
+    level: 'LOW',
+    location: 'Общий',
+    title: 'Несогласованный формат дат',
+    text: 'Смешаны форматы MM/DD/YYYY и DD Month YYYY.',
+    color: 'text-[#0c7a3e]',
+    border: 'border-[#0c7a3e]',
+    badge: 'bg-[#e8f7ef] text-[#0c7a3e]',
+    icon: 'info',
+  },
+]
+
+const steps = [
+  { id: 1, name: 'OCR проверка', status: 'done', time: 'Завершено 2 мин назад' },
+  { id: 2, name: 'Проверка структуры реквизитов', status: 'done', time: 'Завершено 1 мин назад' },
+  { id: 3, name: 'Ожидается подтверждение пользователя', status: 'current', time: 'Текущий статус' },
+]
+
 export default function App() {
   return (
-    <div className="flex h-screen bg-gray-100 text-gray-900">
-
-      {/* Left panel: Document context */}
-      <aside className="w-80 bg-white border-r border-gray-200 flex flex-col shrink-0">
-        <div className="p-4 border-b border-gray-200">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-            Контекст документа
-          </h2>
-        </div>
-        <div className="flex-1 flex items-center justify-center p-6 text-center">
-          <p className="text-sm text-gray-400">
-            Выберите документ для отображения контекста бизнес-процесса
-          </p>
-        </div>
-      </aside>
-
-      {/* Right panel: Chat */}
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white border-b border-gray-200 px-6 py-4 shrink-0">
-          <h1 className="text-lg font-bold text-gray-800">AI Ассистент СЭД</h1>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Интеллектуальный помощник по документообороту
-          </p>
-        </header>
-
-        {/* Messages area */}
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center space-y-2">
-            <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mx-auto">
-              <span className="text-2xl">🤖</span>
-            </div>
-            <p className="text-sm font-medium text-gray-600">Чат готов к работе</p>
-            <p className="text-xs text-gray-400">Подключение к LLM — Фаза 2</p>
+    <div className="h-screen overflow-hidden bg-[#f3f6fa] text-[#1a1d22]">
+      <div className="flex h-full">
+        <aside className="hidden w-72 shrink-0 flex-col border-r border-[#dce3ee] bg-[#eef3fa] px-4 py-5 lg:flex">
+          <div className="mb-8 px-2">
+            <h1 className="font-['Manrope'] text-xl font-extrabold tracking-tight text-[#111827]">AI-Assistant</h1>
+            <p className="font-['Inter'] text-xs text-[#64748b]">Готов к анализу</p>
           </div>
-        </div>
 
-        {/* Input */}
-        <div className="bg-white border-t border-gray-200 px-4 py-3 shrink-0">
-          <div className="flex gap-2 max-w-4xl mx-auto">
-            <input
-              type="text"
-              placeholder="Введите вопрос по документообороту..."
-              className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm bg-gray-50 text-gray-400 cursor-not-allowed focus:outline-none"
-            />
+          <nav className="space-y-1">
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left font-['Inter'] text-sm transition-colors ${
+                  item.active
+                    ? 'bg-white font-semibold text-[#1d4ed8] shadow-sm'
+                    : 'text-[#475569] hover:bg-white/70'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+
+            {hiddenNavItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="hidden w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left font-['Inter'] text-sm text-[#475569]"
+              >
+                <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="mt-auto space-y-4 pt-4">
+            <div className="rounded-2xl bg-white p-4 shadow-sm">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="font-['Inter'] text-[10px] font-bold uppercase tracking-[0.14em] text-[#64748b]">
+                  Статус документа
+                </span>
+                <span className="rounded-full bg-[#e8f7ef] px-2 py-0.5 text-[10px] font-bold text-[#0c7a3e]">Проверен</span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#eef3fa]">
+                  <span className="material-symbols-outlined text-[#1d4ed8]">article</span>
+                </div>
+
+                <div>
+                  <p className="max-w-[140px] truncate font-['Manrope'] text-xs font-bold text-[#0f172a]">
+                    Purchase_Agreement_v4.pdf
+                  </p>
+                  <p className="font-['Inter'] text-[10px] text-[#64748b]">24 Oct 2023 • 2.4 MB</p>
+                </div>
+              </div>
+            </div>
+
             <button
-              disabled
-              className="bg-blue-500 text-white px-5 py-2 rounded-lg text-sm font-medium opacity-40 cursor-not-allowed"
+              type="button"
+              className="w-full rounded-xl bg-gradient-to-br from-[#1d4ed8] to-[#2563eb] px-4 py-3 font-['Manrope'] text-sm font-bold text-white shadow-lg shadow-[#1d4ed8]/25"
             >
-              Отправить
+              + Новый анализ
             </button>
           </div>
-        </div>
-      </main>
+        </aside>
 
+        <main className="flex min-w-0 flex-1 flex-col">
+          <header className="flex items-center justify-between border-b border-[#dce3ee] bg-[#f8fbff] px-6 py-4 xl:px-8">
+            <div>
+              <h2 className="font-['Manrope'] text-xl font-bold tracking-tight text-[#111827]">Чаты</h2>
+              <p className="font-['Inter'] text-xs text-[#64748b]">Проверка документов и рекомендации</p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button type="button" className="rounded-full p-2 text-[#64748b] hover:bg-white">
+                <span className="material-symbols-outlined">notifications</span>
+              </button>
+              <button type="button" className="rounded-full p-2 text-[#64748b] hover:bg-white">
+                <span className="material-symbols-outlined">settings</span>
+              </button>
+              <div className="h-9 w-9 rounded-full bg-[#dbeafe]" />
+            </div>
+          </header>
+
+          <div className="flex min-h-0 flex-1">
+            <section className="flex min-w-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-4 md:px-6 xl:px-8">
+              <div className="mx-auto w-full max-w-4xl space-y-6 overflow-y-auto pr-1">
+                <div className="flex items-start gap-4">
+                  <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#1d4ed8] text-white">
+                    <span className="material-symbols-outlined text-base">auto_awesome</span>
+                  </div>
+
+                  <article className="max-w-[92%] space-y-4 rounded-2xl rounded-tl-none border-l-4 border-[#1d4ed8] bg-white p-5 shadow-sm">
+                    <h3 className="font-['Manrope'] text-xl font-bold text-[#0f172a]">Проверка завершена</h3>
+                    <p className="font-['Inter'] text-sm leading-relaxed text-[#334155]">
+                      Я завершил анализ файла <span className="font-semibold text-[#1d4ed8]">Purchase_Agreement_v4.pdf</span>.
+                      Документ соответствует базовой структуре, но обнаружены <span className="font-bold text-[#ba1a1a]">3 критичных замечания</span>,
+                      которые нужно исправить перед финальным согласованием.
+                    </p>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="rounded-xl bg-[#f1f5f9] p-3 text-center">
+                        <p className="font-['Manrope'] text-2xl font-extrabold text-[#1d4ed8]">92%</p>
+                        <p className="font-['Inter'] text-[10px] font-bold uppercase tracking-[0.14em] text-[#64748b]">Confidence</p>
+                      </div>
+                      <div className="rounded-xl bg-[#f1f5f9] p-3 text-center">
+                        <p className="font-['Manrope'] text-2xl font-extrabold text-[#ba1a1a]">03</p>
+                        <p className="font-['Inter'] text-[10px] font-bold uppercase tracking-[0.14em] text-[#64748b]">Critical</p>
+                      </div>
+                      <div className="rounded-xl bg-[#f1f5f9] p-3 text-center">
+                        <p className="font-['Manrope'] text-2xl font-extrabold text-[#0f172a]">18</p>
+                        <p className="font-['Inter'] text-[10px] font-bold uppercase tracking-[0.14em] text-[#64748b]">Pages</p>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+
+                <div className="flex items-start justify-end gap-3">
+                  <div className="max-w-[70%] rounded-2xl rounded-tr-none bg-[#1d4ed8] px-4 py-3 text-white shadow-sm">
+                    <p className="font-['Inter'] text-sm">Суммируй критичные замечания и укажи, что нужно исправить в первую очередь.</p>
+                  </div>
+                  <div className="h-8 w-8 rounded-full bg-[#dbeafe]" />
+                </div>
+              </div>
+
+              <div className="mx-auto mt-6 w-full max-w-4xl">
+                <div className="flex items-center gap-2 rounded-2xl border border-[#dce3ee] bg-white p-2 shadow-sm">
+                  <button type="button" className="rounded-xl p-2 text-[#64748b] hover:bg-[#f3f6fa]">
+                    <span className="material-symbols-outlined">attach_file</span>
+                  </button>
+                  <input
+                    type="text"
+                    placeholder="Задайте вопрос или отправьте комментарий по документу..."
+                    className="w-full border-none bg-transparent px-1 py-2 font-['Inter'] text-sm text-[#0f172a] placeholder:text-[#94a3b8] focus:outline-none"
+                  />
+                  <button type="button" className="rounded-xl bg-[#1d4ed8] p-3 text-white">
+                    <span className="material-symbols-outlined">send</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <aside className="hidden w-80 shrink-0 border-l border-[#dce3ee] bg-[#eef3fa] p-6 xl:block">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="font-['Manrope'] text-lg font-bold text-[#0f172a]">Замечания анализа</h3>
+                <button type="button" className="rounded-full p-1 text-[#64748b] hover:bg-white">
+                  <span className="material-symbols-outlined">filter_list</span>
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {remarks.map((item) => (
+                  <article key={item.id} className={`rounded-2xl border-l-4 ${item.border} bg-white p-4 shadow-sm`}>
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className={`material-symbols-outlined text-[18px] ${item.color}`}>{item.icon}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${item.badge}`}>
+                        {item.level}
+                      </span>
+                      <span className="font-['Inter'] text-[10px] text-[#64748b]">{item.location}</span>
+                    </div>
+                    <h4 className="font-['Inter'] text-sm font-semibold text-[#0f172a]">{item.title}</h4>
+                    <p className="mt-1 font-['Inter'] text-xs leading-relaxed text-[#475569]">{item.text}</p>
+                  </article>
+                ))}
+              </div>
+
+              <div className="mt-6 border-t border-[#dce3ee] pt-5">
+                <h4 className="mb-4 font-['Inter'] text-[10px] font-bold uppercase tracking-[0.14em] text-[#64748b]">
+                  Этапы проверки
+                </h4>
+
+                <ol className="space-y-4">
+                  {steps.map((step) => (
+                    <li key={step.id} className="flex items-start gap-3">
+                      {step.status === 'done' ? (
+                        <span className="mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#0c7a3e] text-white">
+                          <span className="material-symbols-outlined text-[12px]">check</span>
+                        </span>
+                      ) : (
+                        <span className="mt-0.5 h-4 w-4 rounded-full border-4 border-[#bfdbfe] bg-[#1d4ed8]" />
+                      )}
+
+                      <div>
+                        <p className={`font-['Inter'] text-xs font-semibold ${step.status === 'current' ? 'text-[#1d4ed8]' : 'text-[#0f172a]'}`}>
+                          {step.name}
+                        </p>
+                        <p className="font-['Inter'] text-[10px] text-[#64748b]">{step.time}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </aside>
+          </div>
+        </main>
+      </div>
     </div>
   )
 }
