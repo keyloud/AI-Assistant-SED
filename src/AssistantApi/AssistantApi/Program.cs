@@ -1,4 +1,6 @@
 using Serilog;
+using AssistantApi.Infrastructure.OllamaClient;
+using AssistantApi.Services.Interfaces;
 
 // Инициализация базового логгера Serilog до запуска хоста для отслеживания ошибок старта
 Log.Logger = new LoggerConfiguration()
@@ -17,6 +19,8 @@ try
     // Регистрация контроллеров и HTTP-клиента в DI-контейнере
     builder.Services.AddControllers();
     builder.Services.AddHttpClient();
+    builder.Services.Configure<OllamaOptions>(builder.Configuration.GetSection("Ollama"));
+    builder.Services.AddHttpClient<ILlmService, OllamaHttpClient>();
 
     // Настройка CORS для взаимодействия с фронтендом (ChatUI)
     builder.Services.AddCors(options =>

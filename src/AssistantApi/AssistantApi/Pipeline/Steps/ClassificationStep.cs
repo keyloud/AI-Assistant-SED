@@ -9,8 +9,7 @@ public class ClassificationStep : IPipelineStep
 {
     private static readonly string[] ValidationKeywords =
     [
-        "проверь", "провер", "реквизит", "документ", "договор", "доверенность", "приказ",
-        "ошибк", "исправ", "pdf", "docx", "файл", "влож"
+        "проверь", "провер", "реквизит", "документ", "договор", "доверенность", "приказ", "ошибк", "исправ", "pdf", "docx", "файл", "влож"
     ];
 
     public Task ExecuteAsync(PipelineContext context, CancellationToken ct = default)

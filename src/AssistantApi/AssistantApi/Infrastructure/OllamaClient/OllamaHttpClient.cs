@@ -1,6 +1,10 @@
 using AssistantApi.Models.Domain;
 using AssistantApi.Services.Interfaces;
 using Microsoft.Extensions.Options;
+using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AssistantApi.Infrastructure.OllamaClient;
 
@@ -36,8 +40,7 @@ public class OllamaHttpClient : ILlmService
         List<ConversationMessage>? history = null,
         CancellationToken ct = default)
     {
-        // TODO Phase 2: POST to {BaseUrl}/api/chat with model and messages
-        throw new NotImplementedException("Implemented in Phase 2");
+        return GenerateInternalAsync(prompt, history, ct);
     }
 
     /// <summary>
@@ -54,5 +57,65 @@ public class OllamaHttpClient : ILlmService
     {
         // TODO Phase 2: streaming via SSE
         throw new NotImplementedException("Implemented in Phase 2");
+    }
+
+    private async Task<string> GenerateInternalAsync(
+        string prompt,
+        List<ConversationMessage>? history,
+        CancellationToken ct)
+    {
+        var endpoint = (_options.BaseUrl?.TrimEnd('/') ?? "http://ollama:11434") + "/api/generate";
+
+        var finalPrompt = BuildPromptWithHistory(prompt, history);
+
+        var payload = new
+        {
+            model = _options.Model,
+            prompt = finalPrompt,
+            stream = false
+        };
+
+        using var response = await _httpClient.PostAsJsonAsync(endpoint, payload, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogWarning("Ollama request failed with status {Status}: {Body}", response.StatusCode, errorBody);
+            throw new InvalidOperationException($"Ollama request failed: {(int)response.StatusCode}");
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var result = await JsonSerializer.DeserializeAsync<OllamaGenerateResponse>(stream, cancellationToken: ct);
+
+        return result?.Response ?? string.Empty;
+    }
+
+    private static string BuildPromptWithHistory(string prompt, List<ConversationMessage>? history)
+    {
+        if (history is null || history.Count == 0)
+        {
+            return prompt;
+        }
+
+        var sb = new StringBuilder();
+        foreach (var item in history.TakeLast(8))
+        {
+            if (string.IsNullOrWhiteSpace(item.Content))
+            {
+                continue;
+            }
+
+            sb.AppendLine($"{item.Role}: {item.Content}");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("user: " + prompt);
+        return sb.ToString();
+    }
+
+    private sealed class OllamaGenerateResponse
+    {
+        [JsonPropertyName("response")]
+        public string? Response { get; set; }
     }
 }

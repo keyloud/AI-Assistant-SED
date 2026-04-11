@@ -1,3 +1,5 @@
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+
 const navItems = [
   { id: 'chats', label: 'Чаты', icon: 'chat', active: true },
   { id: 'documents', label: 'Все документы', icon: 'description', active: false },
@@ -52,7 +54,117 @@ const steps = [
   { id: 3, name: 'Ожидается подтверждение пользователя', status: 'current', time: 'Текущий статус' },
 ]
 
+type MessageRole = 'user' | 'assistant'
+
+type ChatMessage = {
+  id: string
+  role: MessageRole
+  content: string
+}
+
+type ChatApiResponse = {
+  sessionId: string
+  response: string
+}
+
+const initialMessages: ChatMessage[] = [
+  {
+    id: 'assistant-seed',
+    role: 'assistant',
+    content:
+      'Я готов к работе. Задайте вопрос по документообороту или отправьте документ для проверки обязательных реквизитов.',
+  },
+]
+
 export default function App() {
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
+  const [inputValue, setInputValue] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [errorText, setErrorText] = useState<string | null>(null)
+
+  const sessionIdRef = useRef(
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `session-${Date.now()}`,
+  )
+
+  const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
+
+  const conversationHistory = useMemo(
+    () =>
+      messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+    [messages],
+  )
+
+  useEffect(() => {
+    endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, isLoading])
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const trimmed = inputValue.trim()
+    if (!trimmed || isLoading) {
+      return
+    }
+
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: trimmed,
+    }
+
+    setMessages((prev) => [...prev, userMessage])
+    setInputValue('')
+    setIsLoading(true)
+    setErrorText(null)
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+        },
+        body: JSON.stringify({
+          sessionId: sessionIdRef.current,
+          message: trimmed,
+          conversationHistory,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const data = (await response.json()) as ChatApiResponse
+      const assistantText = data.response?.trim() || 'Получен пустой ответ от ассистента.'
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: assistantText,
+        },
+      ])
+    } catch {
+      setErrorText('Не удалось получить ответ от backend. Проверьте доступность /api/chat.')
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-error-${Date.now()}`,
+          role: 'assistant',
+          content: 'Сервис временно недоступен. Попробуйте отправить запрос еще раз.',
+        },
+      ])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   return (
     <div className="h-screen overflow-hidden bg-[#f3f6fa] text-[#1a1d22]">
       <div className="flex h-full">
@@ -142,59 +254,65 @@ export default function App() {
 
           <div className="flex min-h-0 flex-1">
             <section className="flex min-w-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-4 md:px-6 xl:px-8">
-              <div className="mx-auto w-full max-w-4xl space-y-6 overflow-y-auto pr-1">
-                <div className="flex items-start gap-4">
-                  <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#1d4ed8] text-white">
-                    <span className="material-symbols-outlined text-base">auto_awesome</span>
-                  </div>
+              <div className="mx-auto w-full max-w-4xl space-y-4 overflow-y-auto pr-1">
+                {messages.map((message) =>
+                  message.role === 'assistant' ? (
+                    <div key={message.id} className="flex items-start gap-4">
+                      <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#1d4ed8] text-white">
+                        <span className="material-symbols-outlined text-base">auto_awesome</span>
+                      </div>
 
-                  <article className="max-w-[92%] space-y-4 rounded-2xl rounded-tl-none border-l-4 border-[#1d4ed8] bg-white p-5 shadow-sm">
-                    <h3 className="font-['Manrope'] text-xl font-bold text-[#0f172a]">Проверка завершена</h3>
-                    <p className="font-['Inter'] text-sm leading-relaxed text-[#334155]">
-                      Я завершил анализ файла <span className="font-semibold text-[#1d4ed8]">Purchase_Agreement_v4.pdf</span>.
-                      Документ соответствует базовой структуре, но обнаружены <span className="font-bold text-[#ba1a1a]">3 критичных замечания</span>,
-                      которые нужно исправить перед финальным согласованием.
-                    </p>
-
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="rounded-xl bg-[#f1f5f9] p-3 text-center">
-                        <p className="font-['Manrope'] text-2xl font-extrabold text-[#1d4ed8]">92%</p>
-                        <p className="font-['Inter'] text-[10px] font-bold uppercase tracking-[0.14em] text-[#64748b]">Confidence</p>
-                      </div>
-                      <div className="rounded-xl bg-[#f1f5f9] p-3 text-center">
-                        <p className="font-['Manrope'] text-2xl font-extrabold text-[#ba1a1a]">03</p>
-                        <p className="font-['Inter'] text-[10px] font-bold uppercase tracking-[0.14em] text-[#64748b]">Critical</p>
-                      </div>
-                      <div className="rounded-xl bg-[#f1f5f9] p-3 text-center">
-                        <p className="font-['Manrope'] text-2xl font-extrabold text-[#0f172a]">18</p>
-                        <p className="font-['Inter'] text-[10px] font-bold uppercase tracking-[0.14em] text-[#64748b]">Pages</p>
-                      </div>
+                      <article className="max-w-[92%] rounded-2xl rounded-tl-none border-l-4 border-[#1d4ed8] bg-white p-5 shadow-sm">
+                        <p className="whitespace-pre-wrap font-['Inter'] text-sm leading-relaxed text-[#334155]">{message.content}</p>
+                      </article>
                     </div>
-                  </article>
-                </div>
+                  ) : (
+                    <div key={message.id} className="flex items-start justify-end gap-3">
+                      <div className="max-w-[70%] rounded-2xl rounded-tr-none bg-[#1d4ed8] px-4 py-3 text-white shadow-sm">
+                        <p className="whitespace-pre-wrap font-['Inter'] text-sm">{message.content}</p>
+                      </div>
+                      <div className="h-8 w-8 rounded-full bg-[#dbeafe]" />
+                    </div>
+                  ),
+                )}
 
-                <div className="flex items-start justify-end gap-3">
-                  <div className="max-w-[70%] rounded-2xl rounded-tr-none bg-[#1d4ed8] px-4 py-3 text-white shadow-sm">
-                    <p className="font-['Inter'] text-sm">Суммируй критичные замечания и укажи, что нужно исправить в первую очередь.</p>
+                {isLoading && (
+                  <div className="flex items-start gap-4">
+                    <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#1d4ed8] text-white">
+                      <span className="material-symbols-outlined text-base">auto_awesome</span>
+                    </div>
+                    <article className="max-w-[92%] rounded-2xl rounded-tl-none border-l-4 border-[#1d4ed8] bg-white p-5 shadow-sm">
+                      <p className="font-['Inter'] text-sm text-[#64748b]">Ассистент формирует ответ...</p>
+                    </article>
                   </div>
-                  <div className="h-8 w-8 rounded-full bg-[#dbeafe]" />
-                </div>
+                )}
+
+                {errorText && (
+                  <div className="rounded-xl border border-[#fecaca] bg-[#fff1f1] px-4 py-3 font-['Inter'] text-sm text-[#991b1b]">
+                    {errorText}
+                  </div>
+                )}
+
+                <div ref={endOfMessagesRef} />
               </div>
 
               <div className="mx-auto mt-6 w-full max-w-4xl">
-                <div className="flex items-center gap-2 rounded-2xl border border-[#dce3ee] bg-white p-2 shadow-sm">
-                  <button type="button" className="rounded-xl p-2 text-[#64748b] hover:bg-[#f3f6fa]">
+                <form onSubmit={handleSubmit} className="flex items-center gap-2 rounded-2xl border border-[#dce3ee] bg-white p-2 shadow-sm">
+                  <button type="button" className="rounded-xl p-2 text-[#64748b] hover:bg-[#f3f6fa]" title="Загрузка файла будет подключена на следующем шаге">
                     <span className="material-symbols-outlined">attach_file</span>
                   </button>
                   <input
                     type="text"
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
                     placeholder="Задайте вопрос или отправьте комментарий по документу..."
                     className="w-full border-none bg-transparent px-1 py-2 font-['Inter'] text-sm text-[#0f172a] placeholder:text-[#94a3b8] focus:outline-none"
+                    disabled={isLoading}
                   />
-                  <button type="button" className="rounded-xl bg-[#1d4ed8] p-3 text-white">
+                  <button type="submit" className="rounded-xl bg-[#1d4ed8] p-3 text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={isLoading || !inputValue.trim()}>
                     <span className="material-symbols-outlined">send</span>
                   </button>
-                </div>
+                </form>
               </div>
             </section>
 
