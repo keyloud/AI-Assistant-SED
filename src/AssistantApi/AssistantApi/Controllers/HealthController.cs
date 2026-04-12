@@ -1,5 +1,7 @@
 using AssistantApi.Models.Responses;
 using Microsoft.AspNetCore.Mvc;
+using System.Diagnostics;
+using System.Net.Http.Headers;
 
 namespace AssistantApi.Controllers;
 
@@ -7,6 +9,12 @@ namespace AssistantApi.Controllers;
 [Route("api/[controller]")]
 public class HealthController : ControllerBase
 {
+    private const string HealthyStatus = "healthy";
+    private const string DegradedStatus = "degraded";
+    private const string OkStatus = "ok";
+    private const string ErrorStatus = "error";
+    private const string UnavailableStatus = "unavailable";
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
     private readonly ILogger<HealthController> _logger;
@@ -21,7 +29,7 @@ public class HealthController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>GET /api/health — checks Ollama and Qdrant connectivity.</summary>
+    /// <summary>GET /api/health - checks Ollama and Qdrant connectivity.</summary>
     [HttpGet]
     public async Task<IActionResult> GetHealth(CancellationToken ct)
     {
@@ -30,14 +38,14 @@ public class HealthController : ControllerBase
 
         await Task.WhenAll(ollamaTask, qdrantTask);
 
-        var ollamaStatus = await ollamaTask;
-        var qdrantStatus = await qdrantTask;
+        var ollamaStatus = ollamaTask.Result;
+        var qdrantStatus = qdrantTask.Result;
 
-        var isHealthy = ollamaStatus.Status == "ok" && qdrantStatus.Status == "ok";
+        var isHealthy = ollamaStatus.Status == OkStatus && qdrantStatus.Status == OkStatus;
 
         var response = new HealthResponse
         {
-            Status = isHealthy ? "healthy" : "degraded",
+            Status = isHealthy ? HealthyStatus : DegradedStatus,
             Services = new Dictionary<string, ServiceStatus>
             {
                 ["ollama"] = ollamaStatus,
@@ -46,49 +54,77 @@ public class HealthController : ControllerBase
             Timestamp = DateTime.UtcNow
         };
 
-        return isHealthy ? Ok(response) : StatusCode(503, response);
+        return isHealthy ? Ok(response) : StatusCode(StatusCodes.Status503ServiceUnavailable, response);
     }
 
-    private async Task<ServiceStatus> CheckOllamaAsync(CancellationToken ct)
+    private Task<ServiceStatus> CheckOllamaAsync(CancellationToken ct)
     {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var baseUrl = _configuration["Ollama:BaseUrl"] ?? "http://ollama:11434";
+        return CheckServiceAsync("ollama", $"{baseUrl.TrimEnd('/')}/api/version", ct);
+    }
+
+    private Task<ServiceStatus> CheckQdrantAsync(CancellationToken ct)
+    {
+        var host = _configuration["Qdrant:Host"] ?? "qdrant";
+        var port = _configuration.GetValue<int>("Qdrant:Port", 6333);
+        return CheckServiceAsync("qdrant", $"http://{host}:{port}/healthz", ct);
+    }
+
+    private async Task<ServiceStatus> CheckServiceAsync(string serviceName, string url, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+
         try
         {
             var client = _httpClientFactory.CreateClient();
-            var baseUrl = _configuration["Ollama:BaseUrl"] ?? "http://ollama:11434";
-            var response = await client.GetAsync($"{baseUrl}/api/version", ct);
+            client.Timeout = TimeSpan.FromSeconds(5);
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true };
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             return new ServiceStatus
             {
-                Status = response.IsSuccessStatusCode ? "ok" : "error",
-                LatencyMs = sw.ElapsedMilliseconds
+                Status = response.IsSuccessStatusCode ? OkStatus : ErrorStatus,
+                LatencyMs = sw.ElapsedMilliseconds,
+                Details = response.IsSuccessStatusCode
+                    ? null
+                    : $"HTTP {(int)response.StatusCode} ({response.ReasonPhrase})"
+            };
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning("{ServiceName} health check timed out", serviceName);
+            return new ServiceStatus
+            {
+                Status = UnavailableStatus,
+                LatencyMs = sw.ElapsedMilliseconds,
+                Details = "Request timed out"
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "{ServiceName} health check failed", serviceName);
+            return new ServiceStatus
+            {
+                Status = UnavailableStatus,
+                LatencyMs = sw.ElapsedMilliseconds,
+                Details = ex.Message
             };
         }
         catch (Exception ex)
         {
-            _logger.LogWarning("Ollama health check failed: {Message}", ex.Message);
-            return new ServiceStatus { Status = "unavailable", LatencyMs = sw.ElapsedMilliseconds };
-        }
-    }
-
-    private async Task<ServiceStatus> CheckQdrantAsync(CancellationToken ct)
-    {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        try
-        {
-            var client = _httpClientFactory.CreateClient();
-            var host = _configuration["Qdrant:Host"] ?? "qdrant";
-            var port = _configuration.GetValue<int>("Qdrant:Port", 6333);
-            var response = await client.GetAsync($"http://{host}:{port}/healthz", ct);
+            _logger.LogError(ex, "Unexpected error during {ServiceName} health check", serviceName);
             return new ServiceStatus
             {
-                Status = response.IsSuccessStatusCode ? "ok" : "error",
-                LatencyMs = sw.ElapsedMilliseconds
+                Status = UnavailableStatus,
+                LatencyMs = sw.ElapsedMilliseconds,
+                Details = "Unexpected error"
             };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Qdrant health check failed: {Message}", ex.Message);
-            return new ServiceStatus { Status = "unavailable", LatencyMs = sw.ElapsedMilliseconds };
         }
     }
 }

@@ -6,9 +6,8 @@
 
 Текущие контроллеры backend API:
 - GET /api/health
+- POST /api/chat
 - POST /api/documents/validate
-
-Примечание: endpoint чата (/api/chat) в текущей версии еще не реализован.
 
 ## Быстрый старт (5-10 минут)
 
@@ -113,6 +112,8 @@ curl.exe -X POST "http://localhost:5000/api/documents/validate" -F "file=@C:\pat
 ```
 
 Допустимые форматы файла: .docx и .pdf
+
+Шаблоны проверки обязательных реквизитов настраиваются в `src/AssistantApi/AssistantApi/appsettings.json` в секции `DocumentValidation:Templates`.
 
 ## Команды Chat UI
 

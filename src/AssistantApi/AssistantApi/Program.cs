@@ -1,5 +1,6 @@
 using Serilog;
 using AssistantApi.Infrastructure.OllamaClient;
+using AssistantApi.Services.DocumentValidation;
 using AssistantApi.Services.Interfaces;
 
 // Инициализация базового логгера Serilog до запуска хоста для отслеживания ошибок старта
@@ -20,7 +21,9 @@ try
     builder.Services.AddControllers();
     builder.Services.AddHttpClient();
     builder.Services.Configure<OllamaOptions>(builder.Configuration.GetSection("Ollama"));
+    builder.Services.Configure<DocumentValidationOptions>(builder.Configuration.GetSection(DocumentValidationOptions.SectionName));
     builder.Services.AddHttpClient<ILlmService, OllamaHttpClient>();
+    builder.Services.AddSingleton<IDocumentValidationService, DocumentValidationService>();
 
     // Настройка CORS для взаимодействия с фронтендом (ChatUI)
     builder.Services.AddCors(options =>
