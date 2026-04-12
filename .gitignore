@@ -30,3 +30,6 @@ experiments/logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# example-files
+example-files/

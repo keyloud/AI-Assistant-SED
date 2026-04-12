@@ -53,6 +53,7 @@ services:
       Cors__ChatUiOrigin: http://localhost:5173
     volumes:
       - ./data:/app/sed-data:ro
+      - ./logs/assistant-api:/app/logs
     depends_on:
       qdrant:
         condition: service_healthy

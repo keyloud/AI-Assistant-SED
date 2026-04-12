@@ -12,7 +12,7 @@ const hiddenNavItems = [
   { id: 'insights', label: 'AI Insights', icon: 'auto_awesome' },
 ]
 
-const remarks = [
+const staticRemarks = [
   {
     id: 'high',
     level: 'HIGH',
@@ -67,6 +67,25 @@ type ChatApiResponse = {
   response: string
 }
 
+type ValidationApiResponse = {
+  status: 'ok' | 'needs_fix' | 'template_not_found' | 'bad_request'
+  documentType?: string
+  extractedTextLength: number
+  remarks: string[]
+}
+
+type UiRemark = {
+  id: string
+  level: 'HIGH' | 'MEDIUM' | 'LOW'
+  location: string
+  title: string
+  text: string
+  color: string
+  border: string
+  badge: string
+  icon: string
+}
+
 const initialMessages: ChatMessage[] = [
   {
     id: 'assistant-seed',
@@ -80,7 +99,11 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isValidating, setIsValidating] = useState(false)
   const [errorText, setErrorText] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [documentType, setDocumentType] = useState<string | null>(null)
+  const [dynamicRemarks, setDynamicRemarks] = useState<UiRemark[] | null>(null)
 
   const sessionIdRef = useRef(
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -89,6 +112,7 @@ export default function App() {
   )
 
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const conversationHistory = useMemo(
     () =>
@@ -101,13 +125,157 @@ export default function App() {
 
   useEffect(() => {
     endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isLoading])
+  }, [messages, isLoading, isValidating])
+
+  const remarksToRender = dynamicRemarks ?? staticRemarks
+
+  function mapValidationRemarks(remarks: string[]): UiRemark[] {
+    return remarks.map((text, index) => {
+      const lower = text.toLowerCase()
+      const isHigh = lower.includes('не найден обязательный реквизит')
+      const isLow = lower.includes('ocr') || lower.includes('не удалось извлечь')
+
+      if (isHigh) {
+        return {
+          id: `remark-${index}`,
+          level: 'HIGH',
+          location: 'Документ',
+          title: 'Отсутствует обязательный реквизит',
+          text,
+          color: 'text-[#ba1a1a]',
+          border: 'border-[#ba1a1a]',
+          badge: 'bg-[#ffdad6] text-[#93000a]',
+          icon: 'error',
+        }
+      }
+
+      if (isLow) {
+        return {
+          id: `remark-${index}`,
+          level: 'LOW',
+          location: 'Файл',
+          title: 'Техническое замечание',
+          text,
+          color: 'text-[#0c7a3e]',
+          border: 'border-[#0c7a3e]',
+          badge: 'bg-[#e8f7ef] text-[#0c7a3e]',
+          icon: 'info',
+        }
+      }
+
+      return {
+        id: `remark-${index}`,
+        level: 'MEDIUM',
+        location: 'Документ',
+        title: 'Замечание при проверке',
+        text,
+        color: 'text-[#943700]',
+        border: 'border-[#943700]',
+        badge: 'bg-[#ffdbcd] text-[#7d2d00]',
+        icon: 'warning',
+      }
+    })
+  }
+
+  async function runDocumentValidation(file: File) {
+    setIsValidating(true)
+    setErrorText(null)
+
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const lowerName = file.name.toLowerCase()
+    if (lowerName.includes('договор')) {
+      formData.append('documentTypeHint', 'договор')
+    } else if (lowerName.includes('довер')) {
+      formData.append('documentTypeHint', 'доверенность')
+    } else if (lowerName.includes('приказ')) {
+      formData.append('documentTypeHint', 'приказ')
+    }
+
+    try {
+      const response = await fetch('/api/documents/validate', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = (await response.json()) as ValidationApiResponse
+
+      if (!response.ok) {
+        throw new Error(data.remarks?.join(' ') || `HTTP ${response.status}`)
+      }
+
+      setDocumentType(data.documentType ?? null)
+
+      if (data.remarks.length > 0) {
+        setDynamicRemarks(mapValidationRemarks(data.remarks))
+      } else {
+        setDynamicRemarks([
+          {
+            id: 'validation-ok',
+            level: 'LOW',
+            location: 'Документ',
+            title: 'Критичных замечаний не найдено',
+            text: `Проверка завершена: статус ${data.status}.`,
+            color: 'text-[#0c7a3e]',
+            border: 'border-[#0c7a3e]',
+            badge: 'bg-[#e8f7ef] text-[#0c7a3e]',
+            icon: 'check_circle',
+          },
+        ])
+      }
+
+      const summaryText =
+        data.remarks.length === 0
+          ? `Проверка файла ${file.name} завершена. Замечаний не найдено.`
+          : `Проверка файла ${file.name} завершена. Найдено замечаний: ${data.remarks.length}.`
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-validation-${Date.now()}`,
+          role: 'assistant',
+          content: summaryText,
+        },
+      ])
+    } catch {
+      setErrorText('Не удалось выполнить проверку документа. Проверьте /api/documents/validate.')
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-validation-error-${Date.now()}`,
+          role: 'assistant',
+          content: 'Сервис проверки документа временно недоступен. Попробуйте снова.',
+        },
+      ])
+    } finally {
+      setIsValidating(false)
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
+    if (selectedFile) {
+      const currentFile = selectedFile
+      setSelectedFile(null)
+      setInputValue('')
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `user-file-${Date.now()}`,
+          role: 'user',
+          content: `Проверь документ: ${currentFile.name}`,
+        },
+      ])
+
+      await runDocumentValidation(currentFile)
+      return
+    }
+
     const trimmed = inputValue.trim()
-    if (!trimmed || isLoading) {
+    if (!trimmed || isLoading || isValidating) {
       return
     }
 
@@ -218,9 +386,11 @@ export default function App() {
 
                 <div>
                   <p className="max-w-[140px] truncate font-['Manrope'] text-xs font-bold text-[#0f172a]">
-                    Purchase_Agreement_v4.pdf
+                    {selectedFile?.name ?? 'Документ не выбран'}
                   </p>
-                  <p className="font-['Inter'] text-[10px] text-[#64748b]">24 Oct 2023 • 2.4 MB</p>
+                  <p className="font-['Inter'] text-[10px] text-[#64748b]">
+                    {documentType ? `Тип: ${documentType}` : 'Ожидает проверки'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -298,18 +468,44 @@ export default function App() {
 
               <div className="mx-auto mt-6 w-full max-w-4xl">
                 <form onSubmit={handleSubmit} className="flex items-center gap-2 rounded-2xl border border-[#dce3ee] bg-white p-2 shadow-sm">
-                  <button type="button" className="rounded-xl p-2 text-[#64748b] hover:bg-[#f3f6fa]" title="Загрузка файла будет подключена на следующем шаге">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.docx"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null
+                      setSelectedFile(file)
+                      setErrorText(null)
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-xl p-2 text-[#64748b] hover:bg-[#f3f6fa]"
+                    title="Прикрепить PDF или DOCX"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isLoading || isValidating}
+                  >
                     <span className="material-symbols-outlined">attach_file</span>
                   </button>
+                  {selectedFile && (
+                    <span className="max-w-[180px] truncate rounded-lg bg-[#e9f0ff] px-2 py-1 font-['Inter'] text-xs text-[#1d4ed8]">
+                      {selectedFile.name}
+                    </span>
+                  )}
                   <input
                     type="text"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
-                    placeholder="Задайте вопрос или отправьте комментарий по документу..."
+                    placeholder={selectedFile ? 'Нажмите отправку для проверки документа...' : 'Задайте вопрос или отправьте комментарий по документу...'}
                     className="w-full border-none bg-transparent px-1 py-2 font-['Inter'] text-sm text-[#0f172a] placeholder:text-[#94a3b8] focus:outline-none"
-                    disabled={isLoading}
+                    disabled={isLoading || isValidating}
                   />
-                  <button type="submit" className="rounded-xl bg-[#1d4ed8] p-3 text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={isLoading || !inputValue.trim()}>
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-[#1d4ed8] p-3 text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isLoading || isValidating || (!inputValue.trim() && !selectedFile)}
+                  >
                     <span className="material-symbols-outlined">send</span>
                   </button>
                 </form>
@@ -325,7 +521,7 @@ export default function App() {
               </div>
 
               <div className="space-y-3">
-                {remarks.map((item) => (
+                {remarksToRender.map((item) => (
                   <article key={item.id} className={`rounded-2xl border-l-4 ${item.border} bg-white p-4 shadow-sm`}>
                     <div className="mb-1 flex items-center gap-2">
                       <span className={`material-symbols-outlined text-[18px] ${item.color}`}>{item.icon}</span>
