@@ -2,6 +2,7 @@ using AssistantApi.Models.Requests;
 using AssistantApi.Models.Responses;
 using AssistantApi.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
+using System.Diagnostics;
 
 namespace AssistantApi.Controllers;
 
@@ -21,10 +22,19 @@ public class ChatController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Post([FromBody] ChatRequest request, CancellationToken ct)
     {
+        var sw = Stopwatch.StartNew();
+
         if (string.IsNullOrWhiteSpace(request.Message))
         {
+            _logger.LogWarning("Chat request rejected: empty message");
             return BadRequest(new { error = "Поле message обязательно." });
         }
+
+        _logger.LogInformation(
+            "Chat request started: sessionId={SessionId}, messageLength={MessageLength}, historyCount={HistoryCount}",
+            request.SessionId ?? "<new>",
+            request.Message.Length,
+            request.ConversationHistory?.Count ?? 0);
 
         try
         {
@@ -41,11 +51,17 @@ public class ChatController : ControllerBase
                 PipelineTrace = new Dictionary<string, long>()
             };
 
+            _logger.LogInformation(
+                "Chat request finished: sessionId={SessionId}, responseLength={ResponseLength}, elapsedMs={ElapsedMs}",
+                response.SessionId,
+                response.Response?.Length ?? 0,
+                sw.ElapsedMilliseconds);
+
             return Ok(response);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Chat endpoint failed");
+            _logger.LogError(ex, "Chat endpoint failed after {ElapsedMs}ms", sw.ElapsedMilliseconds);
             return StatusCode(502, new { error = "Не удалось получить ответ от LLM." });
         }
     }

@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Diagnostics;
 
 namespace AssistantApi.Infrastructure.OllamaClient;
 
@@ -64,9 +65,17 @@ public class OllamaHttpClient : ILlmService
         List<ConversationMessage>? history,
         CancellationToken ct)
     {
+        var sw = Stopwatch.StartNew();
         var endpoint = (_options.BaseUrl?.TrimEnd('/') ?? "http://ollama:11434") + "/api/generate";
 
         var finalPrompt = BuildPromptWithHistory(prompt, history);
+
+        _logger.LogInformation(
+            "Ollama generation started: model={Model}, endpoint={Endpoint}, promptLength={PromptLength}, historyCount={HistoryCount}",
+            _options.Model,
+            endpoint,
+            finalPrompt.Length,
+            history?.Count ?? 0);
 
         var payload = new
         {
@@ -86,6 +95,12 @@ public class OllamaHttpClient : ILlmService
 
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         var result = await JsonSerializer.DeserializeAsync<OllamaGenerateResponse>(stream, cancellationToken: ct);
+
+        _logger.LogInformation(
+            "Ollama generation finished: model={Model}, responseLength={ResponseLength}, elapsedMs={ElapsedMs}",
+            _options.Model,
+            result?.Response?.Length ?? 0,
+            sw.ElapsedMilliseconds);
 
         return result?.Response ?? string.Empty;
     }

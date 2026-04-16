@@ -1,12 +1,10 @@
-2026-04-12 13:42:58.036 +00:00 [INF] Now listening on: http://[::]:8080
-2026-04-12 13:42:58.073 +00:00 [INF] Application started. Press Ctrl+C to shut down.
-2026-04-12 13:42:58.074 +00:00 [INF] Hosting environment: Development
-2026-04-12 13:42:58.075 +00:00 [INF] Content root path: /app
-2026-04-12 13:43:29.715 +00:00 [INF] Request starting HTTP/1.1 POST http://assistant-api:8080/api/documents/validate - multipart/form-data; boundary=----WebKitFormBoundaryVALZE4vAinEpErnK 195076
-2026-04-12 13:43:29.735 +00:00 [INF] CORS policy execution successful.
-2026-04-12 13:43:29.739 +00:00 [INF] Executing endpoint 'AssistantApi.Controllers.DocumentsController.Validate (AssistantApi)'
-2026-04-12 13:43:29.759 +00:00 [INF] Route matched with {action = "Validate", controller = "Documents"}. Executing controller action with signature System.Threading.Tasks.Task`1[Microsoft.AspNetCore.Mvc.IActionResult] Validate(AssistantApi.Models.Requests.DocumentValidateRequest, System.Threading.CancellationToken) on controller AssistantApi.Controllers.DocumentsController (AssistantApi).
-2026-04-12 13:43:29.810 +00:00 [INF] Executing OkObjectResult, writing value of type 'AssistantApi.Models.Responses.DocumentValidationResponse'.
-2026-04-12 13:43:29.833 +00:00 [INF] Executed action AssistantApi.Controllers.DocumentsController.Validate (AssistantApi) in 70.3579ms
-2026-04-12 13:43:29.836 +00:00 [INF] Executed endpoint 'AssistantApi.Controllers.DocumentsController.Validate (AssistantApi)'
-2026-04-12 13:43:29.841 +00:00 [INF] Request finished HTTP/1.1 POST http://assistant-api:8080/api/documents/validate - 200 null application/json; charset=utf-8 126.5791ms
+2026-04-12 17:09:18.508 +00:00 [INF] Now listening on: http://[::]:8080
+2026-04-12 17:09:18.548 +00:00 [INF] Application started. Press Ctrl+C to shut down.
+2026-04-12 17:09:18.550 +00:00 [INF] Hosting environment: Development
+2026-04-12 17:09:18.551 +00:00 [INF] Content root path: /app
+2026-04-12 17:11:49.688 +00:00 [INF] Application is shutting down...
+2026-04-12 21:11:51.276 +04:00 [INF] Now listening on: http://[::]:8080
+2026-04-12 21:11:51.329 +04:00 [INF] Application started. Press Ctrl+C to shut down.
+2026-04-12 21:11:51.330 +04:00 [INF] Hosting environment: Development
+2026-04-12 21:11:51.330 +04:00 [INF] Content root path: /app
+2026-04-12 21:13:31.741 +04:00 [INF] Application is shutting down...

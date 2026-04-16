@@ -43,6 +43,7 @@ services:
       - "5000:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      TZ: Etc/GMT-4
       Ollama__BaseUrl: http://ollama:11434
       Ollama__Model: qwen2.5:3b
       Ollama__EmbeddingModel: bge-m3

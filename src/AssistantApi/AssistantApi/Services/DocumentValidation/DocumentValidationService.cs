@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Diagnostics;
 using AssistantApi.Models.Responses;
 using AssistantApi.Services.Interfaces;
 using Microsoft.Extensions.Options;
@@ -27,9 +28,17 @@ public class DocumentValidationService : IDocumentValidationService
         string? documentTypeHint,
         CancellationToken ct = default)
     {
+        var sw = Stopwatch.StartNew();
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        _logger.LogDebug(
+            "Validation pipeline started: file={FileName}, extension={Extension}, hint={DocumentTypeHint}",
+            fileName,
+            extension,
+            documentTypeHint ?? "<none>");
+
         if (extension is not ".docx" and not ".pdf")
         {
+            _logger.LogWarning("Unsupported format for {FileName}: {Extension}", fileName, extension);
             return new DocumentValidationResponse
             {
                 Status = "bad_request",
@@ -41,12 +50,32 @@ public class DocumentValidationService : IDocumentValidationService
             ? await ExtractDocxTextAsync(fileStream, ct)
             : await ExtractPdfTextAsync(fileStream, ct);
 
+        _logger.LogDebug(
+            "Text extraction finished for {FileName}: extractedTextLength={ExtractedTextLength}",
+            fileName,
+            extractedText.Length);
+
         var template = ResolveTemplate(documentTypeHint, fileName, extractedText);
+        _logger.LogDebug(
+            "Template resolve result for {FileName}: template={Template}",
+            fileName,
+            template?.DisplayName ?? "<not_found>");
+
         var remarks = BuildValidationRemarks(template, extractedText, extension);
+        _logger.LogDebug(
+            "Validation remarks built for {FileName}: remarksCount={RemarksCount}",
+            fileName,
+            remarks.Count);
 
         if (template is null)
         {
             remarks.Add(_options.TemplateNotFoundMessage);
+            _logger.LogInformation(
+                "Validation finished for {FileName}: status=template_not_found, remarksCount={RemarksCount}, elapsedMs={ElapsedMs}",
+                fileName,
+                remarks.Count,
+                sw.ElapsedMilliseconds);
+
             return new DocumentValidationResponse
             {
                 Status = "template_not_found",
@@ -55,9 +84,18 @@ public class DocumentValidationService : IDocumentValidationService
             };
         }
 
+        var status = remarks.Count == 0 ? "ok" : "needs_fix";
+        _logger.LogInformation(
+            "Validation finished for {FileName}: status={Status}, documentType={DocumentType}, remarksCount={RemarksCount}, elapsedMs={ElapsedMs}",
+            fileName,
+            status,
+            template.DisplayName,
+            remarks.Count,
+            sw.ElapsedMilliseconds);
+
         return new DocumentValidationResponse
         {
-            Status = remarks.Count == 0 ? "ok" : "needs_fix",
+            Status = status,
             DocumentType = template.DisplayName,
             ExtractedTextLength = extractedText.Length,
             Remarks = remarks
@@ -77,6 +115,8 @@ public class DocumentValidationService : IDocumentValidationService
                 remarks.Add(_options.PdfOcrRecommendationMessage);
             }
 
+            _logger.LogDebug("No text extracted from file content. Extension={Extension}", extension);
+
             return remarks;
         }
 
@@ -91,6 +131,7 @@ public class DocumentValidationService : IDocumentValidationService
             if (!normalized.Contains(keyword.ToLowerInvariant(), StringComparison.Ordinal))
             {
                 remarks.Add($"Не найден обязательный реквизит: {keyword}.");
+                _logger.LogDebug("Missing required keyword: {Keyword}", keyword);
             }
         }
 
