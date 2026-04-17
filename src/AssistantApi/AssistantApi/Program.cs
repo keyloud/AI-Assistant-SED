@@ -1,5 +1,6 @@
 using Serilog;
 using AssistantApi.Infrastructure.OllamaClient;
+using AssistantApi.Infrastructure.QdrantClient;
 using AssistantApi.Services.DocumentValidation;
 using AssistantApi.Services.Interfaces;
 
@@ -21,8 +22,10 @@ try
     builder.Services.AddControllers();
     builder.Services.AddHttpClient();
     builder.Services.Configure<OllamaOptions>(builder.Configuration.GetSection("Ollama"));
+    builder.Services.Configure<QdrantOptions>(builder.Configuration.GetSection("Qdrant"));
     builder.Services.Configure<DocumentValidationOptions>(builder.Configuration.GetSection(DocumentValidationOptions.SectionName));
     builder.Services.AddHttpClient<ILlmService, OllamaHttpClient>();
+    builder.Services.AddHttpClient<IRagService, QdrantHttpClient>();
     builder.Services.AddSingleton<IDocumentValidationService, DocumentValidationService>();
 
     // Настройка CORS для взаимодействия с фронтендом (ChatUI)

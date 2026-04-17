@@ -3,6 +3,7 @@ using AssistantApi.Models.Responses;
 using AssistantApi.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
+using System.Linq;
 
 namespace AssistantApi.Controllers;
 
@@ -11,11 +12,16 @@ namespace AssistantApi.Controllers;
 public class ChatController : ControllerBase
 {
     private readonly ILlmService _llmService;
+    private readonly IRagService _ragService;
     private readonly ILogger<ChatController> _logger;
 
-    public ChatController(ILlmService llmService, ILogger<ChatController> logger)
+    public ChatController(
+        ILlmService llmService,
+        IRagService ragService,
+        ILogger<ChatController> logger)
     {
         _llmService = llmService;
+        _ragService = ragService;
         _logger = logger;
     }
 
@@ -38,7 +44,14 @@ public class ChatController : ControllerBase
 
         try
         {
-            var responseText = await _llmService.GenerateAsync(request.Message, request.ConversationHistory, ct);
+            var ragChunks = await _ragService.SearchAsync(request.Message, topK: 3, ct);
+            var prompt = BuildAugmentedPrompt(request.Message, ragChunks);
+
+            _logger.LogInformation(
+                "RAG context found for chat request: chunks={ChunksCount}",
+                ragChunks.Count);
+
+            var responseText = await _llmService.GenerateAsync(prompt, request.ConversationHistory, ct);
 
             var response = new ChatResponse
             {
@@ -47,7 +60,14 @@ public class ChatController : ControllerBase
                 RequestType = "KnowledgeBaseQuery",
                 ClassificationConfidence = 0.9f,
                 ValidationRemarks = new List<string>(),
-                RagSources = new List<RagSource>(),
+                RagSources = ragChunks
+                    .Select(chunk => new RagSource
+                    {
+                        Title = string.IsNullOrWhiteSpace(chunk.DocumentTitle) ? chunk.SourceFile : chunk.DocumentTitle,
+                        Section = chunk.Section,
+                        Score = chunk.RelevanceScore
+                    })
+                    .ToList(),
                 PipelineTrace = new Dictionary<string, long>()
             };
 
@@ -64,5 +84,26 @@ public class ChatController : ControllerBase
             _logger.LogError(ex, "Chat endpoint failed after {ElapsedMs}ms", sw.ElapsedMilliseconds);
             return StatusCode(502, new { error = "Не удалось получить ответ от LLM." });
         }
+    }
+
+    private static string BuildAugmentedPrompt(string message, List<AssistantApi.Models.Domain.KnowledgeChunk> ragChunks)
+    {
+        if (ragChunks.Count == 0)
+        {
+            return message;
+        }
+
+        var sources = string.Join("\n\n", ragChunks.Select((chunk, index) =>
+            $"Источник {index + 1}: {chunk.DocumentTitle} {chunk.Section}\n{chunk.Content}".Trim()));
+
+        return $"""
+            Ты ассистент СЭД. Отвечай только на основе релевантных источников ниже. Если источники не дают уверенного ответа, так и скажи.
+
+            Источники:
+            {sources}
+
+            Вопрос пользователя:
+            {message}
+            """;
     }
 }

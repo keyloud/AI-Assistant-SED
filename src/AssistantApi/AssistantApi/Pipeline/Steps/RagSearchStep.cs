@@ -1,3 +1,5 @@
+using AssistantApi.Services.Interfaces;
+
 namespace AssistantApi.Pipeline.Steps;
 
 /// <summary>
@@ -5,10 +7,21 @@ namespace AssistantApi.Pipeline.Steps;
 /// </summary>
 public class RagSearchStep : IPipelineStep
 {
-    public Task ExecuteAsync(PipelineContext context, CancellationToken ct = default)
+    private readonly IRagService _ragService;
+
+    public RagSearchStep(IRagService ragService)
     {
-        // RAG integration will populate RagResults in the next implementation step.
-        context.RagResults.Clear();
-        return Task.CompletedTask;
+        _ragService = ragService;
+    }
+
+    public async Task ExecuteAsync(PipelineContext context, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(context.UserMessage))
+        {
+            context.RagResults.Clear();
+            return;
+        }
+
+        context.RagResults = await _ragService.SearchAsync(context.UserMessage, topK: 3, ct);
     }
 }

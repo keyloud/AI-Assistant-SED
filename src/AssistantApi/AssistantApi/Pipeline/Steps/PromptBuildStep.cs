@@ -29,8 +29,18 @@ public class PromptBuildStep : IPipelineStep
             return Task.CompletedTask;
         }
 
+        var ragContext = context.RagResults.Count == 0
+            ? "Релевантные источники не найдены."
+            : string.Join("\n\n", context.RagResults.Select((chunk, index) =>
+                $"Источник {index + 1}: {chunk.DocumentTitle} {chunk.Section}\n{chunk.Content}".Trim()));
+
         context.AugmentedPrompt = $"""
             Ты ассистент СЭД. Ответь на вопрос пользователя по базе знаний кратко и по делу.
+
+            Используй только релевантные источники ниже. Если источников нет, отвечай осторожно и не выдумывай факты.
+
+            Источники:
+            {ragContext}
 
             Вопрос пользователя:
             {context.UserMessage}
