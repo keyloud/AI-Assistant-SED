@@ -1,8 +1,7 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { useState, useRef, useEffect, useMemo, FormEvent } from 'react'
 
 const navItems = [
-  { id: 'chats', label: 'Чаты', icon: 'chat', active: true },
-  { id: 'documents', label: 'Все документы', icon: 'description', active: false },
+  { id: 'documents', label: 'Все документы', icon: 'description', active: true },
   { id: 'archive', label: 'Архив', icon: 'inventory_2', active: false },
   { id: 'trash', label: 'Корзина', icon: 'delete', active: false },
 ]
@@ -10,48 +9,6 @@ const navItems = [
 const hiddenNavItems = [
   { id: 'search', label: 'Поиск в архиве', icon: 'search' },
   { id: 'insights', label: 'AI Insights', icon: 'auto_awesome' },
-]
-
-const staticRemarks = [
-  {
-    id: 'high',
-    level: 'HIGH',
-    location: 'Страница 4',
-    title: 'Отсутствует подпись согласующей стороны',
-    text: 'Блок подписи продавца пустой, хотя документ отмечен как завершенный.',
-    color: 'text-[#ba1a1a]',
-    border: 'border-[#ba1a1a]',
-    badge: 'bg-[#ffdad6] text-[#93000a]',
-    icon: 'error',
-  },
-  {
-    id: 'medium',
-    level: 'MEDIUM',
-    location: 'Раздел 8.2',
-    title: 'Неоднозначный срок прекращения договора',
-    text: 'Указан notice period, но не уточнен формат календарных дней.',
-    color: 'text-[#943700]',
-    border: 'border-[#943700]',
-    badge: 'bg-[#ffdbcd] text-[#7d2d00]',
-    icon: 'warning',
-  },
-  {
-    id: 'low',
-    level: 'LOW',
-    location: 'Общий',
-    title: 'Несогласованный формат дат',
-    text: 'Смешаны форматы MM/DD/YYYY и DD Month YYYY.',
-    color: 'text-[#0c7a3e]',
-    border: 'border-[#0c7a3e]',
-    badge: 'bg-[#e8f7ef] text-[#0c7a3e]',
-    icon: 'info',
-  },
-]
-
-const steps = [
-  { id: 1, name: 'OCR проверка', status: 'done', time: 'Завершено 2 мин назад' },
-  { id: 2, name: 'Проверка структуры реквизитов', status: 'done', time: 'Завершено 1 мин назад' },
-  { id: 3, name: 'Ожидается подтверждение пользователя', status: 'current', time: 'Текущий статус' },
 ]
 
 type MessageRole = 'user' | 'assistant'
@@ -64,26 +21,61 @@ type ChatMessage = {
 
 type ChatApiResponse = {
   sessionId: string
+  chatTitle?: string
+  updatedAt?: string
   response: string
+}
+
+type ChatSessionApiResponse = {
+  sessionId: string
+  title: string
+  updatedAt: string
+  status: ChatStatus
+  documents: {
+    id: string
+    name: string
+    uploadDate: string
+    status: DocumentStatus
+    size: string
+    uploadedBy: string
+  }[]
+  messages?: {
+    role: MessageRole
+    content: string
+    timestamp: string
+  }[]
 }
 
 type ValidationApiResponse = {
   status: 'ok' | 'needs_fix' | 'template_not_found' | 'bad_request'
   documentType?: string
+  classificationConfidence?: number
+  ocrUsed?: boolean
   extractedTextLength: number
+  summary?: string
+  recommendations?: string[]
   remarks: string[]
 }
 
-type UiRemark = {
+type DocumentStatus = 'checked' | 'processing' | 'error'
+
+type DocumentItem = {
   id: string
-  level: 'HIGH' | 'MEDIUM' | 'LOW'
-  location: string
+  name: string
+  uploadDate: string
+  status: DocumentStatus
+  size: string
+  uploadedBy: string
+}
+
+type ChatStatus = 'active' | 'archive' | 'error'
+
+type ChatItem = {
+  id: string
   title: string
-  text: string
-  color: string
-  border: string
-  badge: string
-  icon: string
+  documents: DocumentItem[]
+  updatedAt: string
+  status: ChatStatus
 }
 
 const initialMessages: ChatMessage[] = [
@@ -95,6 +87,581 @@ const initialMessages: ChatMessage[] = [
   },
 ]
 
+const mockDocuments: DocumentItem[] = [
+  {
+    id: 'doc-1',
+    name: 'Q3_Financial_Report_Final.pdf',
+    uploadDate: '12 Окт 2023, 14:30',
+    status: 'checked',
+    size: '2.4 MB',
+    uploadedBy: 'Анна Смирнова',
+  },
+  {
+    id: 'doc-2',
+    name: 'Legal_Contract_V2_Draft.docx',
+    uploadDate: '12 Окт 2023, 11:15',
+    status: 'processing',
+    size: '1.1 MB',
+    uploadedBy: 'Иван Петров',
+  },
+  {
+    id: 'doc-3',
+    name: 'Scanned_Invoice_0899.png',
+    uploadDate: '11 Окт 2023, 09:45',
+    status: 'error',
+    size: '4.8 MB',
+    uploadedBy: 'Мария Козлова',
+  },
+]
+
+const mockChats: ChatItem[] = [
+  {
+    id: 'chat-1',
+    title: 'Review of Purchase Agreement',
+    updatedAt: 'Сегодня, 14:30',
+    status: 'active',
+    documents: [
+      {
+        id: 'chat-1-doc-1',
+        name: 'PA_Final_v3.pdf',
+        uploadDate: '19 Апр 2026, 14:10',
+        status: 'checked',
+        size: '2.1 MB',
+        uploadedBy: 'Анна Смирнова',
+      },
+      {
+        id: 'chat-1-doc-2',
+        name: 'PA_Appendix_A.docx',
+        uploadDate: '19 Апр 2026, 14:12',
+        status: 'checked',
+        size: '0.9 MB',
+        uploadedBy: 'Анна Смирнова',
+      },
+      {
+        id: 'chat-1-doc-3',
+        name: 'Pricing_Table_2026.xlsx',
+        uploadDate: '19 Апр 2026, 14:13',
+        status: 'processing',
+        size: '1.3 MB',
+        uploadedBy: 'Анна Смирнова',
+      },
+    ],
+  },
+  {
+    id: 'chat-2',
+    title: 'General Inquiry about Policies',
+    updatedAt: 'Вчера, 09:15',
+    status: 'archive',
+    documents: [],
+  },
+  {
+    id: 'chat-3',
+    title: 'Q4 Financial Report Analysis',
+    updatedAt: '12 Окт, 16:45',
+    status: 'error',
+    documents: [mockDocuments[0]],
+  },
+  {
+    id: 'chat-4',
+    title: 'Employee Onboarding Draft',
+    updatedAt: '10 Окт, 11:20',
+    status: 'active',
+    documents: [mockDocuments[1]],
+  },
+]
+
+function mapApiChatToUi(item: ChatSessionApiResponse): ChatItem {
+  return {
+    id: item.sessionId,
+    title: item.title,
+    updatedAt: item.updatedAt,
+    status: item.status,
+    documents: item.documents.map((doc) => ({
+      id: doc.id,
+      name: doc.name,
+      uploadDate: doc.uploadDate,
+      status: doc.status,
+      size: doc.size,
+      uploadedBy: doc.uploadedBy,
+    })),
+  }
+}
+
+function getDocumentIcon(name: string): string {
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.pdf')) return 'picture_as_pdf'
+  if (lower.endsWith('.docx') || lower.endsWith('.doc') || lower.endsWith('.txt')) return 'description'
+  if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image'
+  return 'description'
+}
+
+function getStatusBadge(status: DocumentStatus): {
+  badge: string
+  icon: string
+  label: string
+} {
+  switch (status) {
+    case 'checked':
+      return {
+        badge: 'bg-[#ffdbcd] text-[#7d2d00]',
+        icon: 'check_circle',
+        label: 'Проверено',
+      }
+    case 'processing':
+      return {
+        badge: 'bg-[#dbe1ff] text-[#003ea8]',
+        icon: 'schedule',
+        label: 'В процессе',
+      }
+    case 'error':
+      return {
+        badge: 'bg-[#ffdad6] text-[#93000a]',
+        icon: 'error',
+        label: 'Ошибка',
+      }
+  }
+}
+
+function getChatStatusBadge(status: ChatStatus): {
+  badge: string
+  icon?: string
+  label: string
+} {
+  switch (status) {
+    case 'active':
+      return {
+        badge: 'bg-[#ffdbcd] text-[#7d2d00]',
+        label: 'Активен',
+      }
+    case 'archive':
+      return {
+        badge: 'bg-[#e6e8ea] text-[#434655]',
+        label: 'Архив',
+      }
+    case 'error':
+      return {
+        badge: 'bg-[#ffdad6] text-[#93000a]',
+        icon: 'error',
+        label: 'Ошибка анализа',
+      }
+  }
+}
+
+function DocumentsTable({ chats, onOpenChat }: { chats: ChatItem[]; onOpenChat: (chat: ChatItem) => void }) {
+  return (
+    <div className="rounded-2xl bg-white shadow-sm overflow-hidden border border-[#dce3ee]">
+      <table className="w-full text-left border-collapse">
+        <thead>
+          <tr className="border-b border-[#dce3ee] text-xs font-medium text-[#64748b] uppercase tracking-wider">
+            <th className="py-5 px-6">Название чата</th>
+            <th className="py-5 px-6">Документ</th>
+            <th className="py-5 px-6">Дата обновления</th>
+            <th className="py-5 px-6">Статус</th>
+            <th className="py-5 px-6 text-right">Действия</th>
+          </tr>
+        </thead>
+        <tbody className="text-sm divide-y divide-[#dce3ee]">
+          {chats.map((chat) => {
+            const statusInfo = getChatStatusBadge(chat.status)
+            const hasDocuments = chat.documents.length > 0
+            const firstDocument = chat.documents[0]
+            const extraDocumentsCount = Math.max(0, chat.documents.length - 1)
+            const icon = hasDocuments ? getDocumentIcon(firstDocument.name) : 'chat'
+
+            return (
+              <tr key={chat.id} className="hover:bg-[#f3f6fa] transition-colors">
+                <td className="py-4 px-6">
+                  <div className="flex items-center gap-4">
+                    <div
+                      className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                        hasDocuments ? 'bg-[#dbe1ff] text-[#0053db]' : 'bg-[#e6e8ea] text-[#737686]'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-base" data-icon={icon}>
+                        {icon}
+                      </span>
+                    </div>
+                    <div className="font-medium text-[#1a1d22]">{chat.title}</div>
+                  </div>
+                </td>
+
+                <td className="py-4 px-6 text-[#64748b]">
+                  {hasDocuments ? (
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[18px]">{getDocumentIcon(firstDocument.name)}</span>
+                      <span className="truncate max-w-[220px]">{firstDocument.name}</span>
+                      {extraDocumentsCount > 0 && (
+                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-[#dbe1ff] text-[#003ea8]">
+                          +{extraDocumentsCount} файла
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-[#737686]">-</span>
+                  )}
+                </td>
+
+                <td className="py-4 px-6 text-[#64748b]">{chat.updatedAt}</td>
+
+                <td className="py-4 px-6">
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${statusInfo.badge}`}>
+                    {statusInfo.icon && (
+                      <span className="material-symbols-outlined text-sm" data-icon={statusInfo.icon}>
+                        {statusInfo.icon}
+                      </span>
+                    )}
+                    {statusInfo.label}
+                  </span>
+                </td>
+
+                <td className="py-4 px-6 text-right">
+                  <button
+                    onClick={() => onOpenChat(chat)}
+                    className="text-[#0053db] hover:bg-[#eef3fa] px-3 py-1.5 rounded-lg transition-colors font-medium text-sm"
+                  >
+                    Открыть
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function DocumentsView({ documents, onOpenDocument }: { documents: ChatItem[]; onOpenDocument: (chat: ChatItem) => void }) {
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredChats = documents.filter(
+    (chat) =>
+      chat.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      chat.documents.some((doc) => doc.name.toLowerCase().includes(searchQuery.toLowerCase())),
+  )
+
+  return (
+    <main className="flex min-w-0 flex-1 flex-col p-6">
+      <header className="mb-8">
+        <h1 className="font-['Manrope'] text-3xl font-extrabold tracking-tight text-[#111827] mb-6">
+          Все документы
+        </h1>
+
+        <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+          <div className="relative w-full md:w-96">
+            <input
+              type="text"
+              placeholder="Поиск по чатам или документам..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg border border-[#dce3ee] bg-white text-[#1a1d22] placeholder-[#64748b] focus:outline-none focus:ring-2 focus:ring-[#0053db] focus:border-transparent"
+            />
+            <span className="material-symbols-outlined absolute right-3 top-3 text-[#64748b] pointer-events-none">
+              search
+            </span>
+          </div>
+
+          <div className="flex gap-3">
+            <button className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white border border-[#dce3ee] text-[#1a1d22] hover:bg-[#f3f6fa] transition-colors font-medium text-sm">
+              <span className="material-symbols-outlined text-base" data-icon="filter_list">
+                filter_list
+              </span>
+              Статус
+            </button>
+            <button className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white border border-[#dce3ee] text-[#1a1d22] hover:bg-[#f3f6fa] transition-colors font-medium text-sm">
+              <span className="material-symbols-outlined text-base" data-icon="calendar_today">
+                calendar_today
+              </span>
+              Дата
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <DocumentsTable chats={filteredChats} onOpenChat={onOpenDocument} />
+
+      <div className="flex items-center justify-between mt-6 px-2">
+        <span className="text-sm text-[#64748b] font-medium">
+          Показано {filteredChats.length} из {documents.length} чатов
+        </span>
+      </div>
+    </main>
+  )
+}
+
+function DocumentDetailsView({
+  document,
+  chatTitle,
+  onBack,
+  messages,
+  inputValue,
+  isLoading,
+  isValidating,
+  errorText,
+  selectedFile,
+  documentType: _documentType,
+  attachmentLimitReached,
+  onInputChange,
+  onFileSelect,
+  onSubmit,
+}: {
+  document: DocumentItem | null
+  chatTitle: string
+  onBack: () => void
+  messages: ChatMessage[]
+  inputValue: string
+  isLoading: boolean
+  isValidating: boolean
+  errorText: string | null
+  selectedFile: File | null
+  documentType: string | null
+  attachmentLimitReached: boolean
+  onInputChange: (value: string) => void
+  onFileSelect: (file: File | null) => void
+  onSubmit: (e: FormEvent<HTMLFormElement>) => void
+}) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, isLoading, isValidating])
+
+  const statusInfo = document ? getStatusBadge(document.status) : null
+
+  return (
+    <main className="flex min-w-0 flex-1 flex-col h-full overflow-hidden p-6 gap-6">
+      {/* Header */}
+      <header className="flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-2 text-[#64748b] hover:text-[#0053db] transition-colors py-2 px-3 rounded-lg hover:bg-[#f3f6fa] group"
+          >
+            <span className="material-symbols-outlined text-[20px] group-hover:-translate-x-1 transition-transform" data-icon="arrow_back">
+              arrow_back
+            </span>
+            <span className="font-['Inter'] text-[0.875rem] font-medium">Назад к списку</span>
+          </button>
+          <div className="w-px h-6 bg-[#dce3ee]/30"></div>
+          <h1 className="font-['Manrope'] text-[1.375rem] font-bold tracking-tight">Детали чата: {chatTitle}</h1>
+        </div>
+        <div className="flex items-center gap-3">
+          <button className="flex items-center gap-2 bg-white text-[#1a1d22] hover:bg-[#f3f6fa] transition-colors py-2 px-4 rounded-lg text-[0.875rem] font-medium shadow-sm border border-[#dce3ee]">
+            <span className="material-symbols-outlined text-[18px]" data-icon="share">
+              share
+            </span>
+            Поделиться
+          </button>
+          <button className="flex items-center gap-2 bg-[#0053db] text-white hover:opacity-90 transition-opacity py-2 px-5 rounded-lg text-[0.875rem] font-medium shadow-sm">
+            <span className="material-symbols-outlined text-[18px]" data-icon="download">
+              download
+            </span>
+            Скачать
+          </button>
+        </div>
+      </header>
+
+      {/* Content Grid */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-hidden min-h-0">
+        {/* Left Column: Document Preview & Metadata */}
+        <section className="lg:col-span-5 xl:col-span-4 flex flex-col gap-6 overflow-y-auto pr-2 pb-6">
+          {/* Document Preview Card */}
+          <div className="bg-white rounded-xl p-6 shadow-sm flex flex-col gap-6 shrink-0 relative overflow-hidden group cursor-pointer border border-[#dce3ee]">
+            <div className="aspect-[3/4] w-full bg-[#eef3fa] rounded-lg overflow-hidden relative flex items-center justify-center">
+              <span className="material-symbols-outlined text-[64px] text-[#0053db] opacity-50">
+                {document ? getDocumentIcon(document.name) : 'chat'}
+              </span>
+            </div>
+          </div>
+
+          {/* Metadata Card */}
+          <div className="bg-white rounded-xl p-6 shadow-sm border border-[#dce3ee] shrink-0">
+            <h2 className="font-['Manrope'] text-[1.125rem] font-bold mb-6">Метаданные</h2>
+            <dl className="space-y-5">
+              <div className="flex flex-col gap-1">
+                <dt className="font-['Inter'] text-[0.75rem] text-[#64748b] uppercase tracking-wider">Название</dt>
+                <dd className="font-['Inter'] text-[0.875rem] font-medium break-all">{document ? document.name : 'Без документа'}</dd>
+              </div>
+              <div className="flex flex-col gap-1">
+                <dt className="font-['Inter'] text-[0.75rem] text-[#64748b] uppercase tracking-wider">Статус</dt>
+                <dd>
+                  {statusInfo ? (
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[0.75rem] font-medium ${statusInfo.badge}`}>
+                      <span className="material-symbols-outlined text-[14px]" data-icon={statusInfo.icon}>
+                        {statusInfo.icon}
+                      </span>
+                      {statusInfo.label}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[0.75rem] font-medium bg-[#e6e8ea] text-[#434655]">
+                      Без документа
+                    </span>
+                  )}
+                </dd>
+              </div>
+              <div className="flex flex-col gap-1">
+                <dt className="font-['Inter'] text-[0.75rem] text-[#64748b] uppercase tracking-wider">Дата загрузки</dt>
+                <dd className="font-['Inter'] text-[0.875rem] flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[16px] text-[#64748b]" data-icon="calendar_today">
+                    calendar_today
+                  </span>
+                  {document ? document.uploadDate : '-'}
+                </dd>
+              </div>
+              <div className="flex flex-col gap-1">
+                <dt className="font-['Inter'] text-[0.75rem] text-[#64748b] uppercase tracking-wider">Размер</dt>
+                <dd className="font-['Inter'] text-[0.875rem]">{document ? document.size : '-'}</dd>
+              </div>
+              <div className="flex flex-col gap-1">
+                <dt className="font-['Inter'] text-[0.75rem] text-[#64748b] uppercase tracking-wider">Ответственный</dt>
+                <dd className="flex items-center gap-3 mt-1">
+                  <div className="w-8 h-8 rounded-full bg-[#dbe1ff] text-[#0053db] flex items-center justify-center font-bold text-[0.75rem]">
+                    {document ? document.uploadedBy.substring(0, 2).toUpperCase() : 'AI'}
+                  </div>
+                  <span className="font-['Inter'] text-[0.875rem] font-medium">{document ? document.uploadedBy : 'AI Assistant'}</span>
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </section>
+
+        {/* Right Column: Chat/Discussion Area */}
+        <section className="lg:col-span-7 xl:col-span-8 flex flex-col bg-white rounded-xl shadow-sm border border-[#dce3ee] overflow-hidden">
+          {/* Chat Header */}
+          <div className="px-6 py-4 border-b border-[#dce3ee] flex justify-between items-center bg-white shrink-0">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-[#0053db]" data-icon="forum">
+                forum
+              </span>
+              <h2 className="font-['Manrope'] text-[1.125rem] font-bold">Анализ документа</h2>
+            </div>
+            <button className="text-[#64748b] hover:text-[#0053db] transition-colors p-1.5 rounded-lg hover:bg-[#f3f6fa]">
+              <span className="material-symbols-outlined text-[20px]" data-icon="more_vert">
+                more_vert
+              </span>
+            </button>
+          </div>
+
+          {/* Messages Area */}
+          <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 bg-[#f8fbff]">
+            {messages.length === 0 ? (
+              <div className="flex items-center justify-center h-full text-[#64748b]">
+                <div className="text-center">
+                  <span className="material-symbols-outlined text-[48px] opacity-30 block mb-2">chat_bubble_outline</span>
+                  <p className="font-['Inter'] text-sm">Нет сообщений. Начните диалог о документе</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                {messages.map((message) =>
+                  message.role === 'assistant' ? (
+                    <div key={message.id} className="flex items-start gap-4">
+                      <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#0053db] text-white flex-shrink-0">
+                        <span className="material-symbols-outlined text-base">auto_awesome</span>
+                      </div>
+                      <article className="max-w-[92%] rounded-2xl rounded-tl-none border-l-4 border-[#0053db] bg-white p-5 shadow-sm">
+                        <p className="whitespace-pre-wrap font-['Inter'] text-sm leading-relaxed text-[#1a1d22]">{message.content}</p>
+                      </article>
+                    </div>
+                  ) : (
+                    <div key={message.id} className="flex items-start justify-end gap-3">
+                      <div className="max-w-[70%] rounded-2xl rounded-tr-none bg-[#0053db] px-4 py-3 text-white shadow-sm">
+                        <p className="whitespace-pre-wrap font-['Inter'] text-sm">{message.content}</p>
+                      </div>
+                      <div className="h-8 w-8 rounded-full bg-[#dbe1ff] flex-shrink-0" />
+                    </div>
+                  ),
+                )}
+
+                {isLoading && (
+                  <div className="flex items-start gap-4">
+                    <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#0053db] text-white">
+                      <span className="material-symbols-outlined text-base">auto_awesome</span>
+                    </div>
+                    <article className="max-w-[92%] rounded-2xl rounded-tl-none border-l-4 border-[#0053db] bg-white p-5 shadow-sm">
+                      <p className="font-['Inter'] text-sm text-[#64748b]">Ассистент формирует ответ...</p>
+                    </article>
+                  </div>
+                )}
+
+                {errorText && (
+                  <div className="rounded-xl border border-[#fecaca] bg-[#fff1f1] px-4 py-3 font-['Inter'] text-sm text-[#991b1b]">
+                    {errorText}
+                  </div>
+                )}
+
+                <div ref={endOfMessagesRef} />
+              </>
+            )}
+          </div>
+
+          {/* Input Area */}
+          <div className="p-4 bg-white border-t border-[#dce3ee] shrink-0">
+            <form onSubmit={onSubmit} className="flex items-end gap-2 rounded-xl border border-[#dce3ee] bg-white p-2 shadow-sm focus-within:border-[#0053db] focus-within:ring-2 focus-within:ring-[#0053db]/20 transition-all">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.docx"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null
+                  onFileSelect(file)
+                }}
+              />
+              <button
+                type="button"
+                className="rounded-lg p-2 text-[#64748b] hover:text-[#0053db] hover:bg-[#f3f6fa] transition-colors shrink-0"
+                title={attachmentLimitReached ? 'Достигнут лимит: 3 файла в чате' : 'Прикрепить PDF или DOCX'}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading || isValidating || attachmentLimitReached}
+              >
+                <span className="material-symbols-outlined">attach_file</span>
+              </button>
+              <textarea
+                value={inputValue}
+                onChange={(e) => onInputChange(e.target.value)}
+                placeholder="Спросите что-нибудь о документе..."
+                className="flex-1 bg-transparent border-none focus:ring-0 resize-none text-[0.875rem] py-2.5 px-3 max-h-32 text-[#1a1d22] placeholder:text-[#64748b]/50 focus:outline-none"
+                rows={1}
+                disabled={isLoading || isValidating}
+              />
+              <div className="flex items-center gap-2 self-end shrink-0 p-1">
+                <button
+                  type="button"
+                  className="p-2 text-[#64748b] hover:text-[#0053db] hover:bg-[#f3f6fa] rounded-lg transition-colors"
+                  disabled={isLoading || isValidating}
+                >
+                  <span className="material-symbols-outlined text-[20px]" data-icon="mic">
+                    mic
+                  </span>
+                </button>
+                <button
+                  type="submit"
+                  className="bg-[#0053db] text-white p-2 rounded-lg hover:opacity-90 transition-opacity shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={isLoading || isValidating || (!inputValue.trim() && !selectedFile)}
+                >
+                  <span className="material-symbols-outlined text-[18px]" data-icon="send">
+                    send
+                  </span>
+                </button>
+              </div>
+            </form>
+            {attachmentLimitReached && (
+              <div className="mt-2 rounded-lg border border-[#ffd9b8] bg-[#fff4ea] px-3 py-2 text-xs text-[#7d2d00]">
+                В этом чате уже 3 документа. Чтобы прикрепить новый, удалите один из текущих или создайте новый чат.
+              </div>
+            )}
+            <div className="mt-2 text-center">
+              <span className="font-['Inter'] text-[0.6875rem] text-[#64748b]/70">AI Assistant может допускать ошибки. Проверяйте важную информацию.</span>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  )
+}
+
 export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [inputValue, setInputValue] = useState('')
@@ -103,17 +670,16 @@ export default function App() {
   const [errorText, setErrorText] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [documentType, setDocumentType] = useState<string | null>(null)
-  const [dynamicRemarks, setDynamicRemarks] = useState<UiRemark[] | null>(null)
+  const [activeView, setActiveView] = useState<'documents' | 'document-details'>('documents')
+  const [chats, setChats] = useState<ChatItem[]>([])
+  const [selectedChat, setSelectedChat] = useState<ChatItem | null>(null)
+  const [selectedDocument, setSelectedDocument] = useState<DocumentItem | null>(null)
+  const [isBootstrappingChats, setIsBootstrappingChats] = useState(false)
+  const attachmentLimitReached = (selectedChat?.documents.length ?? 0) >= 3
 
-  const sessionIdRef = useRef(
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `session-${Date.now()}`,
-  )
+  const selectedSessionId = selectedChat?.id ?? ''
 
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
-
   const conversationHistory = useMemo(
     () =>
       messages.map((m) => ({
@@ -127,57 +693,45 @@ export default function App() {
     endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading, isValidating])
 
-  const remarksToRender = dynamicRemarks ?? staticRemarks
+  useEffect(() => {
+    let isMounted = true
 
-  function mapValidationRemarks(remarks: string[]): UiRemark[] {
-    return remarks.map((text, index) => {
-      const lower = text.toLowerCase()
-      const isHigh = lower.includes('не найден обязательный реквизит')
-      const isLow = lower.includes('ocr') || lower.includes('не удалось извлечь')
+    async function bootstrapChats() {
+      setIsBootstrappingChats(true)
+      try {
+        const response = await fetch('/api/chat/sessions')
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`)
+        }
 
-      if (isHigh) {
-        return {
-          id: `remark-${index}`,
-          level: 'HIGH',
-          location: 'Документ',
-          title: 'Отсутствует обязательный реквизит',
-          text,
-          color: 'text-[#ba1a1a]',
-          border: 'border-[#ba1a1a]',
-          badge: 'bg-[#ffdad6] text-[#93000a]',
-          icon: 'error',
+        const data = (await response.json()) as ChatSessionApiResponse[]
+        if (isMounted) {
+          setChats(data.map(mapApiChatToUi))
+        }
+      } catch {
+        if (isMounted) {
+          setChats(mockChats)
+        }
+      } finally {
+        if (isMounted) {
+          setIsBootstrappingChats(false)
         }
       }
+    }
 
-      if (isLow) {
-        return {
-          id: `remark-${index}`,
-          level: 'LOW',
-          location: 'Файл',
-          title: 'Техническое замечание',
-          text,
-          color: 'text-[#0c7a3e]',
-          border: 'border-[#0c7a3e]',
-          badge: 'bg-[#e8f7ef] text-[#0c7a3e]',
-          icon: 'info',
-        }
-      }
+    void bootstrapChats()
 
-      return {
-        id: `remark-${index}`,
-        level: 'MEDIUM',
-        location: 'Документ',
-        title: 'Замечание при проверке',
-        text,
-        color: 'text-[#943700]',
-        border: 'border-[#943700]',
-        badge: 'bg-[#ffdbcd] text-[#7d2d00]',
-        icon: 'warning',
-      }
-    })
-  }
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   async function runDocumentValidation(file: File) {
+    if (attachmentLimitReached) {
+      setErrorText('В этом чате уже 3 документа. Добавление нового файла недоступно.')
+      return
+    }
+
     setIsValidating(true)
     setErrorText(null)
 
@@ -207,28 +761,41 @@ export default function App() {
 
       setDocumentType(data.documentType ?? null)
 
-      if (data.remarks.length > 0) {
-        setDynamicRemarks(mapValidationRemarks(data.remarks))
-      } else {
-        setDynamicRemarks([
-          {
-            id: 'validation-ok',
-            level: 'LOW',
-            location: 'Документ',
-            title: 'Критичных замечаний не найдено',
-            text: `Проверка завершена: статус ${data.status}.`,
-            color: 'text-[#0c7a3e]',
-            border: 'border-[#0c7a3e]',
-            badge: 'bg-[#e8f7ef] text-[#0c7a3e]',
-            icon: 'check_circle',
-          },
-        ])
+      const summaryParts: string[] = []
+      const statusLabel =
+        data.status === 'ok'
+          ? 'успешно'
+          : data.status === 'template_not_found'
+            ? 'с частичной определенностью'
+            : 'с замечаниями'
+
+      summaryParts.push(`Проверка файла ${file.name} завершена ${statusLabel}.`)
+
+      if (data.documentType) {
+        summaryParts.push(`Тип документа: ${data.documentType}.`)
       }
 
-      const summaryText =
-        data.remarks.length === 0
-          ? `Проверка файла ${file.name} завершена. Замечаний не найдено.`
-          : `Проверка файла ${file.name} завершена. Найдено замечаний: ${data.remarks.length}.`
+      if (typeof data.classificationConfidence === 'number') {
+        summaryParts.push(`Уверенность классификации: ${(data.classificationConfidence * 100).toFixed(1)}%.`)
+      }
+
+      if (data.ocrUsed) {
+        summaryParts.push('Для документа был применен OCR.')
+      }
+
+      if (data.summary) {
+        summaryParts.push(`Выжимка: ${data.summary}`)
+      }
+
+      if (data.recommendations && data.recommendations.length > 0) {
+        summaryParts.push(`Рекомендации:\n${data.recommendations.map((item, index) => `${index + 1}. ${item}`).join('\n')}`)
+      }
+
+      if (data.remarks.length > 0) {
+        summaryParts.push(`Замечания (${data.remarks.length}):\n${data.remarks.map((item) => `- ${item}`).join('\n')}`)
+      }
+
+      const summaryText = summaryParts.join('\n\n')
 
       setMessages((prev) => [
         ...prev,
@@ -238,6 +805,69 @@ export default function App() {
           content: summaryText,
         },
       ])
+
+      // Добавить новый документ в выбранный чат
+      const newDoc: DocumentItem = {
+        id: `doc-${Date.now()}`,
+        name: file.name,
+        uploadDate: new Date().toLocaleString('ru-RU'),
+        status: data.status === 'ok' ? 'checked' : data.status === 'bad_request' ? 'error' : 'processing',
+        size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+        uploadedBy: 'Текущий пользователь',
+      }
+
+      if (selectedChat) {
+        try {
+          const attachResponse = await fetch(`/api/chat/sessions/${selectedChat.id}/documents`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+            },
+            body: JSON.stringify({
+              name: newDoc.name,
+              uploadDate: newDoc.uploadDate,
+              status: newDoc.status,
+              size: newDoc.size,
+              uploadedBy: newDoc.uploadedBy,
+            }),
+          })
+
+          if (attachResponse.ok) {
+            const session = (await attachResponse.json()) as ChatSessionApiResponse
+            const mapped = mapApiChatToUi(session)
+
+            setChats((prev) => [mapped, ...prev.filter((chat) => chat.id !== mapped.id)])
+            setSelectedChat(mapped)
+            setSelectedDocument(mapped.documents[0] ?? null)
+          } else {
+            setChats((prev) =>
+              prev.map((chat) =>
+                chat.id === selectedChat.id
+                  ? {
+                      ...chat,
+                      documents: [newDoc, ...chat.documents].slice(0, 3),
+                      updatedAt: 'Только что',
+                    }
+                  : chat,
+              ),
+            )
+            setSelectedDocument(newDoc)
+          }
+        } catch {
+          setChats((prev) =>
+            prev.map((chat) =>
+              chat.id === selectedChat.id
+                ? {
+                    ...chat,
+                    documents: [newDoc, ...chat.documents].slice(0, 3),
+                    updatedAt: 'Только что',
+                  }
+                : chat,
+            ),
+          )
+          setSelectedDocument(newDoc)
+        }
+      }
     } catch {
       setErrorText('Не удалось выполнить проверку документа. Проверьте /api/documents/validate.')
       setMessages((prev) => [
@@ -257,6 +887,12 @@ export default function App() {
     event.preventDefault()
 
     if (selectedFile) {
+      if (attachmentLimitReached) {
+        setErrorText('В этом чате уже 3 документа. Добавление нового файла недоступно.')
+        setSelectedFile(null)
+        return
+      }
+
       const currentFile = selectedFile
       setSelectedFile(null)
       setInputValue('')
@@ -279,6 +915,11 @@ export default function App() {
       return
     }
 
+    if (!selectedSessionId) {
+      setErrorText('Сначала создайте или откройте чат.')
+      return
+    }
+
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -297,7 +938,7 @@ export default function App() {
           'Content-Type': 'application/json; charset=utf-8',
         },
         body: JSON.stringify({
-          sessionId: sessionIdRef.current,
+          sessionId: selectedSessionId,
           message: trimmed,
           conversationHistory,
         }),
@@ -318,6 +959,30 @@ export default function App() {
           content: assistantText,
         },
       ])
+
+      if (data.sessionId) {
+        setChats((prev) =>
+          prev.map((chat) =>
+            chat.id === data.sessionId
+              ? {
+                  ...chat,
+                  title: data.chatTitle?.trim() || chat.title,
+                  updatedAt: data.updatedAt || 'Только что',
+                }
+              : chat,
+          ),
+        )
+
+        setSelectedChat((prev) =>
+          prev && prev.id === data.sessionId
+            ? {
+                ...prev,
+                title: data.chatTitle?.trim() || prev.title,
+                updatedAt: data.updatedAt || 'Только что',
+              }
+            : prev,
+        )
+      }
     } catch {
       setErrorText('Не удалось получить ответ от backend. Проверьте доступность /api/chat.')
       setMessages((prev) => [
@@ -333,6 +998,86 @@ export default function App() {
     }
   }
 
+  async function handleOpenDocument(chat: ChatItem) {
+    setSelectedChat(chat)
+    setSelectedDocument(chat.documents[0] ?? null)
+    setActiveView('document-details')
+
+    try {
+      const response = await fetch(`/api/chat/sessions/${chat.id}`)
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const session = (await response.json()) as ChatSessionApiResponse
+      const mapped = mapApiChatToUi(session)
+      setSelectedChat(mapped)
+      setSelectedDocument(mapped.documents[0] ?? null)
+      setChats((prev) => [mapped, ...prev.filter((item) => item.id !== mapped.id)])
+
+      const restoredMessages =
+        session.messages && session.messages.length > 0
+          ? session.messages.map((message, index) => ({
+              id: `${session.sessionId}-${index}`,
+              role: message.role,
+              content: message.content,
+            }))
+          : initialMessages
+
+      setMessages(restoredMessages)
+    } catch {
+      setMessages(initialMessages)
+    }
+  }
+
+  async function handleCreateChat() {
+    setErrorText(null)
+
+    try {
+      const response = await fetch('/api/chat/sessions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+        },
+        body: JSON.stringify({}),
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const session = (await response.json()) as ChatSessionApiResponse
+      const mapped = mapApiChatToUi(session)
+
+      setChats((prev) => [mapped, ...prev])
+      setSelectedChat(mapped)
+      setSelectedDocument(null)
+      setMessages(initialMessages)
+      setInputValue('')
+      setSelectedFile(null)
+      setDocumentType(null)
+      setActiveView('document-details')
+    } catch {
+      setErrorText('Не удалось создать новый чат. Попробуйте снова.')
+    }
+  }
+
+  function handleFileSelect(file: File | null) {
+    if (!file) {
+      setSelectedFile(null)
+      return
+    }
+
+    if (attachmentLimitReached) {
+      setSelectedFile(null)
+      setErrorText('В этом чате уже 3 документа. Добавление нового файла недоступно.')
+      return
+    }
+
+    setErrorText(null)
+    setSelectedFile(file)
+  }
+
   return (
     <div className="h-screen overflow-hidden bg-[#f3f6fa] text-[#1a1d22]">
       <div className="flex h-full">
@@ -346,9 +1091,10 @@ export default function App() {
             {navItems.map((item) => (
               <button
                 key={item.id}
+                onClick={() => setActiveView('documents')}
                 type="button"
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left font-['Inter'] text-sm transition-colors ${
-                  item.active
+                  item.id === 'documents' && activeView === 'documents'
                     ? 'bg-white font-semibold text-[#1d4ed8] shadow-sm'
                     : 'text-[#475569] hover:bg-white/70'
                 }`}
@@ -371,35 +1117,12 @@ export default function App() {
           </nav>
 
           <div className="mt-auto space-y-4 pt-4">
-            <div className="rounded-2xl bg-white p-4 shadow-sm">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="font-['Inter'] text-[10px] font-bold uppercase tracking-[0.14em] text-[#64748b]">
-                  Статус документа
-                </span>
-                <span className="rounded-full bg-[#e8f7ef] px-2 py-0.5 text-[10px] font-bold text-[#0c7a3e]">Проверен</span>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#eef3fa]">
-                  <span className="material-symbols-outlined text-[#1d4ed8]">article</span>
-                </div>
-
-                <div>
-                  <p className="max-w-[140px] truncate font-['Manrope'] text-xs font-bold text-[#0f172a]">
-                    {selectedFile?.name ?? 'Документ не выбран'}
-                  </p>
-                  <p className="font-['Inter'] text-[10px] text-[#64748b]">
-                    {documentType ? `Тип: ${documentType}` : 'Ожидает проверки'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
             <button
               type="button"
+              onClick={handleCreateChat}
               className="w-full rounded-xl bg-gradient-to-br from-[#1d4ed8] to-[#2563eb] px-4 py-3 font-['Manrope'] text-sm font-bold text-white shadow-lg shadow-[#1d4ed8]/25"
             >
-              + Новый анализ
+              + Новый чат
             </button>
           </div>
         </aside>
@@ -407,8 +1130,12 @@ export default function App() {
         <main className="flex min-w-0 flex-1 flex-col">
           <header className="flex items-center justify-between border-b border-[#dce3ee] bg-[#f8fbff] px-6 py-4 xl:px-8">
             <div>
-              <h2 className="font-['Manrope'] text-xl font-bold tracking-tight text-[#111827]">Чаты</h2>
-              <p className="font-['Inter'] text-xs text-[#64748b]">Проверка документов и рекомендации</p>
+              <h2 className="font-['Manrope'] text-xl font-bold tracking-tight text-[#111827]">
+                {activeView === 'documents' ? 'Все документы' : 'Детали документа'}
+              </h2>
+              <p className="font-['Inter'] text-xs text-[#64748b]">
+                {activeView === 'documents' ? 'Управление чатами и документами' : 'Анализ и обсуждение документа'}
+              </p>
             </div>
 
             <div className="flex items-center gap-3">
@@ -423,146 +1150,34 @@ export default function App() {
           </header>
 
           <div className="flex min-h-0 flex-1">
-            <section className="flex min-w-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-4 md:px-6 xl:px-8">
-              <div className="mx-auto w-full max-w-4xl space-y-4 overflow-y-auto pr-1">
-                {messages.map((message) =>
-                  message.role === 'assistant' ? (
-                    <div key={message.id} className="flex items-start gap-4">
-                      <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#1d4ed8] text-white">
-                        <span className="material-symbols-outlined text-base">auto_awesome</span>
-                      </div>
-
-                      <article className="max-w-[92%] rounded-2xl rounded-tl-none border-l-4 border-[#1d4ed8] bg-white p-5 shadow-sm">
-                        <p className="whitespace-pre-wrap font-['Inter'] text-sm leading-relaxed text-[#334155]">{message.content}</p>
-                      </article>
-                    </div>
-                  ) : (
-                    <div key={message.id} className="flex items-start justify-end gap-3">
-                      <div className="max-w-[70%] rounded-2xl rounded-tr-none bg-[#1d4ed8] px-4 py-3 text-white shadow-sm">
-                        <p className="whitespace-pre-wrap font-['Inter'] text-sm">{message.content}</p>
-                      </div>
-                      <div className="h-8 w-8 rounded-full bg-[#dbeafe]" />
-                    </div>
-                  ),
-                )}
-
-                {isLoading && (
-                  <div className="flex items-start gap-4">
-                    <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#1d4ed8] text-white">
-                      <span className="material-symbols-outlined text-base">auto_awesome</span>
-                    </div>
-                    <article className="max-w-[92%] rounded-2xl rounded-tl-none border-l-4 border-[#1d4ed8] bg-white p-5 shadow-sm">
-                      <p className="font-['Inter'] text-sm text-[#64748b]">Ассистент формирует ответ...</p>
-                    </article>
+            {activeView === 'document-details' && selectedChat ? (
+              <DocumentDetailsView
+                document={selectedDocument}
+                chatTitle={selectedChat.title}
+                onBack={() => setActiveView('documents')}
+                messages={messages}
+                inputValue={inputValue}
+                isLoading={isLoading}
+                isValidating={isValidating}
+                errorText={errorText}
+                selectedFile={selectedFile}
+                documentType={documentType}
+                attachmentLimitReached={attachmentLimitReached}
+                onInputChange={setInputValue}
+                onFileSelect={handleFileSelect}
+                onSubmit={handleSubmit}
+              />
+            ) : (
+              <>
+                {isBootstrappingChats ? (
+                  <div className="flex flex-1 items-center justify-center text-[#64748b]">
+                    Загрузка чатов...
                   </div>
+                ) : (
+                  <DocumentsView documents={chats} onOpenDocument={handleOpenDocument} />
                 )}
-
-                {errorText && (
-                  <div className="rounded-xl border border-[#fecaca] bg-[#fff1f1] px-4 py-3 font-['Inter'] text-sm text-[#991b1b]">
-                    {errorText}
-                  </div>
-                )}
-
-                <div ref={endOfMessagesRef} />
-              </div>
-
-              <div className="mx-auto mt-6 w-full max-w-4xl">
-                <form onSubmit={handleSubmit} className="flex items-center gap-2 rounded-2xl border border-[#dce3ee] bg-white p-2 shadow-sm">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.docx"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0] ?? null
-                      setSelectedFile(file)
-                      setErrorText(null)
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="rounded-xl p-2 text-[#64748b] hover:bg-[#f3f6fa]"
-                    title="Прикрепить PDF или DOCX"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isLoading || isValidating}
-                  >
-                    <span className="material-symbols-outlined">attach_file</span>
-                  </button>
-                  {selectedFile && (
-                    <span className="max-w-[180px] truncate rounded-lg bg-[#e9f0ff] px-2 py-1 font-['Inter'] text-xs text-[#1d4ed8]">
-                      {selectedFile.name}
-                    </span>
-                  )}
-                  <input
-                    type="text"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    placeholder={selectedFile ? 'Нажмите отправку для проверки документа...' : 'Задайте вопрос или отправьте комментарий по документу...'}
-                    className="w-full border-none bg-transparent px-1 py-2 font-['Inter'] text-sm text-[#0f172a] placeholder:text-[#94a3b8] focus:outline-none"
-                    disabled={isLoading || isValidating}
-                  />
-                  <button
-                    type="submit"
-                    className="rounded-xl bg-[#1d4ed8] p-3 text-white disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={isLoading || isValidating || (!inputValue.trim() && !selectedFile)}
-                  >
-                    <span className="material-symbols-outlined">send</span>
-                  </button>
-                </form>
-              </div>
-            </section>
-
-            <aside className="hidden w-80 shrink-0 border-l border-[#dce3ee] bg-[#eef3fa] p-6 xl:block">
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="font-['Manrope'] text-lg font-bold text-[#0f172a]">Замечания анализа</h3>
-                <button type="button" className="rounded-full p-1 text-[#64748b] hover:bg-white">
-                  <span className="material-symbols-outlined">filter_list</span>
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {remarksToRender.map((item) => (
-                  <article key={item.id} className={`rounded-2xl border-l-4 ${item.border} bg-white p-4 shadow-sm`}>
-                    <div className="mb-1 flex items-center gap-2">
-                      <span className={`material-symbols-outlined text-[18px] ${item.color}`}>{item.icon}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${item.badge}`}>
-                        {item.level}
-                      </span>
-                      <span className="font-['Inter'] text-[10px] text-[#64748b]">{item.location}</span>
-                    </div>
-                    <h4 className="font-['Inter'] text-sm font-semibold text-[#0f172a]">{item.title}</h4>
-                    <p className="mt-1 font-['Inter'] text-xs leading-relaxed text-[#475569]">{item.text}</p>
-                  </article>
-                ))}
-              </div>
-
-              <div className="mt-6 border-t border-[#dce3ee] pt-5">
-                <h4 className="mb-4 font-['Inter'] text-[10px] font-bold uppercase tracking-[0.14em] text-[#64748b]">
-                  Этапы проверки
-                </h4>
-
-                <ol className="space-y-4">
-                  {steps.map((step) => (
-                    <li key={step.id} className="flex items-start gap-3">
-                      {step.status === 'done' ? (
-                        <span className="mt-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#0c7a3e] text-white">
-                          <span className="material-symbols-outlined text-[12px]">check</span>
-                        </span>
-                      ) : (
-                        <span className="mt-0.5 h-4 w-4 rounded-full border-4 border-[#bfdbfe] bg-[#1d4ed8]" />
-                      )}
-
-                      <div>
-                        <p className={`font-['Inter'] text-xs font-semibold ${step.status === 'current' ? 'text-[#1d4ed8]' : 'text-[#0f172a]'}`}>
-                          {step.name}
-                        </p>
-                        <p className="font-['Inter'] text-[10px] text-[#64748b]">{step.time}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            </aside>
+              </>
+            )}
           </div>
         </main>
       </div>
