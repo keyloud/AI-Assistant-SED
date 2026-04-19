@@ -3,6 +3,8 @@ namespace AssistantApi.Models.Responses;
 public class ChatResponse
 {
     public string SessionId { get; set; } = string.Empty;
+    public string ChatTitle { get; set; } = string.Empty;
+    public string UpdatedAt { get; set; } = string.Empty;
     public string Response { get; set; } = string.Empty;
     public string RequestType { get; set; } = string.Empty;
     public float ClassificationConfidence { get; set; }
