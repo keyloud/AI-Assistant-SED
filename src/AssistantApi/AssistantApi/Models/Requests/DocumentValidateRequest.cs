@@ -6,4 +6,5 @@ public class DocumentValidateRequest
 {
     public IFormFile? File { get; set; }
     public string? DocumentTypeHint { get; set; }
+    public bool SummaryOnly { get; set; } = true;
 }

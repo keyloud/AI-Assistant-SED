@@ -22,7 +22,7 @@ public class AssistantPipeline
             await step.ExecuteAsync(context, ct);
             sw.Stop();
             context.StepDurationsMs[step.GetType().Name] = sw.ElapsedMilliseconds;
-            _logger.LogDebug("Step {Step} completed in {Ms}ms", step.GetType().Name, sw.ElapsedMilliseconds);
+            _logger.LogDebug("Шаг {Step} выполнен за {Ms}мс", step.GetType().Name, sw.ElapsedMilliseconds);
         }
         return context;
     }

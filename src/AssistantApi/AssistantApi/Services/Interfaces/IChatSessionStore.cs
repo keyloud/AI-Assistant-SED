@@ -8,5 +8,6 @@ public interface IChatSessionStore
     ChatSessionState GetOrCreate(string sessionId);
     bool TryGet(string sessionId, out ChatSessionState? session);
     IReadOnlyList<ChatSessionState> ListSessions();
+    bool RemoveSession(string sessionId);
     ChatSessionState Upsert(string sessionId, Action<ChatSessionState> update);
 }

@@ -8,5 +8,6 @@ public interface IDocumentValidationService
         Stream fileStream,
         string fileName,
         string? documentTypeHint,
+        bool summaryOnly,
         CancellationToken ct = default);
 }

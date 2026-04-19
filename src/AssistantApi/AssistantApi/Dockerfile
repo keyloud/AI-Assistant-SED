@@ -26,9 +26,11 @@ RUN set -eux; \
 			tesseract-ocr \
 			tesseract-ocr-rus \
 			tesseract-ocr-eng \
-			ghostscript && \
+			ghostscript \
+			poppler-utils && \
 		apt-get -f install -y && \
 		command -v ocrmypdf && \
+		command -v pdftotext && \
 		break; \
 		if [ "$attempt" -eq 5 ]; then \
 			echo "OCR package install failed after retries"; \

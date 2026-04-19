@@ -54,6 +54,11 @@ public class ChatSessionStore : IChatSessionStore
             .ToList();
     }
 
+    public bool RemoveSession(string sessionId)
+    {
+        return _sessions.TryRemove(sessionId, out _);
+    }
+
     public ChatSessionState Upsert(string sessionId, Action<ChatSessionState> update)
     {
         var session = GetOrCreate(sessionId);

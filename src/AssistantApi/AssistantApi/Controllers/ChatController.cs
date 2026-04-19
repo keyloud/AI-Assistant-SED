@@ -12,6 +12,11 @@ namespace AssistantApi.Controllers;
 [Route("api/[controller]")]
 public class ChatController : ControllerBase
 {
+    private const int MaxDocumentContextCharsForPrompt = 12000;
+    private const int DocumentChunkSize = 900;
+    private const int DocumentChunkOverlap = 180;
+    private const int TopDocumentChunks = 3;
+
     private readonly ILlmService _llmService;
     private readonly IRagService _ragService;
     private readonly IChatSessionStore _chatSessionStore;
@@ -58,6 +63,14 @@ public class ChatController : ControllerBase
         return Ok(ToDetailsResponse(session));
     }
 
+    [HttpDelete("sessions/{sessionId}")]
+    public IActionResult DeleteSession([FromRoute] string sessionId)
+    {
+        return _chatSessionStore.RemoveSession(sessionId)
+            ? NoContent()
+            : NotFound(new { error = "Чат не найден." });
+    }
+
     [HttpPost("sessions/{sessionId}/documents")]
     public IActionResult AttachDocument([FromRoute] string sessionId, [FromBody] AttachDocumentToChatRequest request)
     {
@@ -72,14 +85,14 @@ public class ChatController : ControllerBase
         }
 
         var docsCountBefore = existing.Documents.Count;
-        if (docsCountBefore >= 3)
+        if (docsCountBefore >= 1)
         {
-            return BadRequest(new { error = "В одном чате может быть не более 3 документов." });
+            return BadRequest(new { error = "В одном чате может быть только 1 документ." });
         }
 
         _chatSessionStore.Upsert(sessionId, session =>
         {
-            if (session.Documents.Count >= 3)
+            if (session.Documents.Count >= 1)
             {
                 return;
             }
@@ -94,8 +107,20 @@ public class ChatController : ControllerBase
                 UploadedBy = request.UploadedBy
             });
 
+            session.AttachedDocumentName = request.Name;
+            if (!string.IsNullOrWhiteSpace(request.ContextSummary))
+            {
+                session.AttachedDocumentContext = request.ContextSummary;
+            }
+
             session.UpdatedAtUtc = DateTime.UtcNow;
         });
+
+        _logger.LogInformation(
+            "Документ прикреплен к чату: sessionId={SessionId}, имя={DocumentName}, длина контекста={ContextLength}",
+            sessionId,
+            request.Name,
+            request.ContextSummary?.Length ?? 0);
 
         var updated = _chatSessionStore.GetOrCreate(sessionId);
         return Ok(ToDetailsResponse(updated));
@@ -108,7 +133,7 @@ public class ChatController : ControllerBase
 
         if (string.IsNullOrWhiteSpace(request.Message))
         {
-            _logger.LogWarning("Chat request rejected: empty message");
+            _logger.LogWarning("Запрос чата отклонен: пустое сообщение");
             return BadRequest(new { error = "Поле message обязательно." });
         }
 
@@ -125,23 +150,52 @@ public class ChatController : ControllerBase
                 Timestamp = DateTime.UtcNow
             });
 
+            if (!string.IsNullOrWhiteSpace(request.AttachedFileName))
+            {
+                session.AttachedDocumentName = request.AttachedFileName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.AttachedFileContent))
+            {
+                session.AttachedDocumentContext = request.AttachedFileContent;
+
+                _logger.LogDebug(
+                    "Контекст документа обновлен из chat-запроса: sessionId={SessionId}, длина={ContextLength}",
+                    sessionId,
+                    request.AttachedFileContent.Length);
+            }
+
             session.UpdatedAtUtc = DateTime.UtcNow;
         });
 
         _logger.LogInformation(
-            "Chat request started: sessionId={SessionId}, messageLength={MessageLength}, historyCount={HistoryCount}",
+            "Запрос чата начат: sessionId={SessionId}, длина сообщения={MessageLength}, элементов истории={HistoryCount}",
             sessionId,
             request.Message.Length,
             request.ConversationHistory?.Count ?? 0);
 
         try
         {
+            var sessionSnapshot = _chatSessionStore.GetOrCreate(sessionId);
+            // Полный текст документа храним в сессии, а в prompt передаем управляемый фрагмент,
+            // чтобы не переполнить контекст модели на очень больших документах.
+            var documentContextForPrompt = BuildDocumentContextForPrompt(request.Message, sessionSnapshot.AttachedDocumentContext);
             var ragChunks = await _ragService.SearchAsync(request.Message, topK: 3, ct);
-            var prompt = BuildAugmentedPrompt(request.Message, ragChunks);
+            var prompt = BuildAugmentedPrompt(
+                request.Message,
+                ragChunks,
+                request.AttachedFileName ?? sessionSnapshot.AttachedDocumentName,
+                documentContextForPrompt);
 
             _logger.LogInformation(
-                "RAG context found for chat request: chunks={ChunksCount}",
-                ragChunks.Count);
+                "Для запроса чата найден RAG-контекст: чанков={ChunksCount}, длина контекста документа в prompt={DocumentContextLength}",
+                ragChunks.Count,
+                documentContextForPrompt.Length);
+
+            _logger.LogDebug(
+                "Подготовка контекста документа для prompt завершена: sessionId={SessionId}, естьКонтекст={HasDocumentContext}",
+                sessionId,
+                !string.IsNullOrWhiteSpace(sessionSnapshot.AttachedDocumentContext));
 
             var responseText = await _llmService.GenerateAsync(prompt, request.ConversationHistory, ct);
 
@@ -195,7 +249,7 @@ public class ChatController : ControllerBase
             };
 
             _logger.LogInformation(
-                "Chat request finished: sessionId={SessionId}, responseLength={ResponseLength}, elapsedMs={ElapsedMs}",
+                "Запрос чата завершен: sessionId={SessionId}, длина ответа={ResponseLength}, время={ElapsedMs}мс",
                 response.SessionId,
                 response.Response?.Length ?? 0,
                 sw.ElapsedMilliseconds);
@@ -204,16 +258,36 @@ public class ChatController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Chat endpoint failed after {ElapsedMs}ms", sw.ElapsedMilliseconds);
+            _logger.LogError(ex, "Эндпоинт чата завершился с ошибкой через {ElapsedMs}мс", sw.ElapsedMilliseconds);
             return StatusCode(502, new { error = "Не удалось получить ответ от LLM." });
         }
     }
 
-    private static string BuildAugmentedPrompt(string message, List<AssistantApi.Models.Domain.KnowledgeChunk> ragChunks)
+    private static string BuildAugmentedPrompt(
+        string message,
+        List<AssistantApi.Models.Domain.KnowledgeChunk> ragChunks,
+        string? attachedFileName = null,
+        string? attachedDocumentContext = null)
     {
+        var attachedFileBlock = string.IsNullOrWhiteSpace(attachedFileName)
+            ? string.Empty
+            : $"Прикрепленный файл: {attachedFileName}\n";
+        var attachedDocumentContextBlock = string.IsNullOrWhiteSpace(attachedDocumentContext)
+            ? string.Empty
+            : $"Контекст прикрепленного документа:\n{attachedDocumentContext}\n\n";
+
         if (ragChunks.Count == 0)
         {
-            return message;
+            if (string.IsNullOrEmpty(attachedFileBlock) && string.IsNullOrEmpty(attachedDocumentContextBlock))
+            {
+                return message;
+            }
+
+            return $"""
+                {attachedFileBlock}
+                {attachedDocumentContextBlock}Вопрос пользователя:
+                {message}
+                """;
         }
 
         var sources = string.Join("\n\n", ragChunks.Select((chunk, index) =>
@@ -222,12 +296,120 @@ public class ChatController : ControllerBase
         return $"""
             Ты ассистент СЭД. Отвечай только на основе релевантных источников ниже. Если источники не дают уверенного ответа, так и скажи.
 
+            {attachedFileBlock}
+            {attachedDocumentContextBlock}
+
             Источники:
             {sources}
 
             Вопрос пользователя:
             {message}
             """;
+    }
+
+    private static string BuildDocumentContextForPrompt(string message, string? fullDocumentContext)
+    {
+        if (string.IsNullOrWhiteSpace(fullDocumentContext))
+        {
+            return string.Empty;
+        }
+
+        var normalized = fullDocumentContext.Trim();
+        if (normalized.Length <= MaxDocumentContextCharsForPrompt)
+        {
+            return normalized;
+        }
+
+        // Для длинных документов берем не просто первый срез, а наиболее релевантные фрагменты по вопросу.
+        var chunks = SplitDocumentIntoChunks(normalized, DocumentChunkSize, DocumentChunkOverlap);
+        var questionTokens = TokenizeForSearch(message);
+
+        var ranked = chunks
+            .Select((chunk, index) => new
+            {
+                Index = index,
+                Chunk = chunk,
+                Score = CalculateChunkScore(chunk, questionTokens)
+            })
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.Index)
+            .Take(TopDocumentChunks)
+            .OrderBy(x => x.Index)
+            .ToList();
+
+        if (ranked.Count == 0 || ranked.All(x => x.Score <= 0))
+        {
+            return $"{normalized[..MaxDocumentContextCharsForPrompt]}\n\n[Контекст документа сокращен из-за большого объема]";
+        }
+
+        var selected = string.Join("\n\n", ranked.Select((x, i) => $"Фрагмент {i + 1}:\n{x.Chunk}"));
+        if (selected.Length > MaxDocumentContextCharsForPrompt)
+        {
+            selected = selected[..MaxDocumentContextCharsForPrompt];
+        }
+
+        return $"Релевантные фрагменты прикрепленного документа:\n{selected}\n\n[Показаны только наиболее релевантные части документа]";
+    }
+
+    private static List<string> SplitDocumentIntoChunks(string text, int chunkSize, int overlap)
+    {
+        var chunks = new List<string>();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return chunks;
+        }
+
+        var step = Math.Max(1, chunkSize - overlap);
+        for (var start = 0; start < text.Length; start += step)
+        {
+            var length = Math.Min(chunkSize, text.Length - start);
+            if (length <= 0)
+            {
+                break;
+            }
+
+            var chunk = text.Substring(start, length).Trim();
+            if (!string.IsNullOrWhiteSpace(chunk))
+            {
+                chunks.Add(chunk);
+            }
+
+            if (start + length >= text.Length)
+            {
+                break;
+            }
+        }
+
+        return chunks;
+    }
+
+    private static HashSet<string> TokenizeForSearch(string text)
+    {
+        return text
+            .ToLowerInvariant()
+            .Split([' ', '\n', '\r', '\t', ',', '.', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '"', '\'', '-', '_', '/'], StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => t.Length >= 3)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static int CalculateChunkScore(string chunk, HashSet<string> queryTokens)
+    {
+        if (queryTokens.Count == 0)
+        {
+            return 0;
+        }
+
+        var normalizedChunk = chunk.ToLowerInvariant();
+        var score = 0;
+        foreach (var token in queryTokens)
+        {
+            if (normalizedChunk.Contains(token, StringComparison.Ordinal))
+            {
+                score++;
+            }
+        }
+
+        return score;
     }
 
     private async Task<string> GenerateTitleAsync(string firstUserMessage, CancellationToken ct)
@@ -254,7 +436,7 @@ public class ChatController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to generate chat title with LLM, fallback will be used");
+            _logger.LogWarning(ex, "Не удалось сгенерировать заголовок чата через LLM, будет использован fallback");
             return BuildFallbackTitle(firstUserMessage);
         }
     }

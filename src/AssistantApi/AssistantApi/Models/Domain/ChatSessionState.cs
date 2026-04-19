@@ -21,5 +21,7 @@ public class ChatSessionState
     public bool IsTitleFinalized { get; set; }
     public List<ConversationMessage> Messages { get; set; } = new();
     public List<ChatDocumentInfo> Documents { get; set; } = new();
+    public string? AttachedDocumentName { get; set; }
+    public string? AttachedDocumentContext { get; set; }
     public object SyncRoot { get; } = new();
 }

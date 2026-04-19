@@ -45,7 +45,7 @@ public class QdrantHttpClient : IRagService
         var embedding = await CreateEmbeddingAsync(query, ct);
         if (embedding.Count == 0)
         {
-            _logger.LogWarning("RAG search skipped because embedding generation returned an empty vector");
+            _logger.LogWarning("RAG-поиск пропущен: генерация эмбеддинга вернула пустой вектор");
             return [];
         }
 
@@ -63,7 +63,7 @@ public class QdrantHttpClient : IRagService
         {
             var errorBody = await response.Content.ReadAsStringAsync(ct);
             _logger.LogWarning(
-                "Qdrant search failed with status {Status}: {Body}",
+                "Поиск в Qdrant завершился ошибкой со статусом {Status}: {Body}",
                 response.StatusCode,
                 errorBody);
             return [];
@@ -79,7 +79,7 @@ public class QdrantHttpClient : IRagService
             .ToList();
 
         _logger.LogInformation(
-            "RAG search finished: queryLength={QueryLength}, topK={TopK}, hits={Hits}, elapsedMs={ElapsedMs}",
+            "RAG-поиск завершен: длина запроса={QueryLength}, topK={TopK}, найдено={Hits}, время={ElapsedMs}мс",
             query.Length,
             topK,
             chunks.Count,
@@ -102,7 +102,7 @@ public class QdrantHttpClient : IRagService
         {
             var errorBody = await response.Content.ReadAsStringAsync(ct);
             _logger.LogWarning(
-                "Embedding request failed with status {Status}: {Body}",
+                "Запрос эмбеддинга завершился ошибкой со статусом {Status}: {Body}",
                 response.StatusCode,
                 errorBody);
             return [];

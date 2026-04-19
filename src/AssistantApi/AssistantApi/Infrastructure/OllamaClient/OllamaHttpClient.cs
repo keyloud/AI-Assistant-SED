@@ -71,7 +71,7 @@ public class OllamaHttpClient : ILlmService
         var finalPrompt = BuildPromptWithHistory(prompt, history);
 
         _logger.LogInformation(
-            "Ollama generation started: model={Model}, endpoint={Endpoint}, promptLength={PromptLength}, historyCount={HistoryCount}",
+            "Генерация в Ollama запущена: модель={Model}, endpoint={Endpoint}, длина промпта={PromptLength}, элементов истории={HistoryCount}",
             _options.Model,
             endpoint,
             finalPrompt.Length,
@@ -89,7 +89,7 @@ public class OllamaHttpClient : ILlmService
         if (!response.IsSuccessStatusCode)
         {
             var errorBody = await response.Content.ReadAsStringAsync(ct);
-            _logger.LogWarning("Ollama request failed with status {Status}: {Body}", response.StatusCode, errorBody);
+            _logger.LogWarning("Запрос к Ollama завершился ошибкой со статусом {Status}: {Body}", response.StatusCode, errorBody);
             throw new InvalidOperationException($"Ollama request failed: {(int)response.StatusCode}");
         }
 
@@ -97,7 +97,7 @@ public class OllamaHttpClient : ILlmService
         var result = await JsonSerializer.DeserializeAsync<OllamaGenerateResponse>(stream, cancellationToken: ct);
 
         _logger.LogInformation(
-            "Ollama generation finished: model={Model}, responseLength={ResponseLength}, elapsedMs={ElapsedMs}",
+            "Генерация в Ollama завершена: модель={Model}, длина ответа={ResponseLength}, время={ElapsedMs}мс",
             _options.Model,
             result?.Response?.Length ?? 0,
             sw.ElapsedMilliseconds);

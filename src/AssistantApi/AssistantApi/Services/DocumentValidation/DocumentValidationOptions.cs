@@ -41,7 +41,7 @@ public class DocumentValidationOcrOptions
 {
     public bool Enabled { get; set; }
     public string Command { get; set; } = "ocrmypdf";
-    public string ArgumentsTemplate { get; set; } = "--force-ocr --skip-text --language {lang} {input} {output}";
+    public string ArgumentsTemplate { get; set; } = "--force-ocr --language {lang} {input} {output}";
     public string Language { get; set; } = "rus+eng";
     public int TimeoutSeconds { get; set; } = 180;
     public int MinExtractedTextLength { get; set; } = 120;

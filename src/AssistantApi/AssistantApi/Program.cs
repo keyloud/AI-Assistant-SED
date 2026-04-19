@@ -53,7 +53,7 @@ try
 catch (Exception ex)
 {
     // Фиксация критических ошибок при запуске
-    Log.Fatal(ex, "Application start-up failed");
+    Log.Fatal(ex, "Ошибка запуска приложения");
 }
 finally
 {

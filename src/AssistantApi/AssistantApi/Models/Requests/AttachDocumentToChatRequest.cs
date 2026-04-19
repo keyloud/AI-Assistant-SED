@@ -7,4 +7,5 @@ public class AttachDocumentToChatRequest
     public string Status { get; set; } = "processing";
     public string Size { get; set; } = string.Empty;
     public string UploadedBy { get; set; } = string.Empty;
+    public string? ContextSummary { get; set; }
 }

@@ -12,6 +12,8 @@ namespace AssistantApi.Controllers;
 [Route("api/[controller]")]
 public class DocumentsController : ControllerBase
 {
+    private const int ValidationTimeoutSeconds = 240;
+
     private readonly IDocumentValidationService _documentValidationService;
     private readonly DocumentValidationOptions _documentValidationOptions;
     private readonly ILogger<DocumentsController> _logger;
@@ -34,7 +36,7 @@ public class DocumentsController : ControllerBase
 
         if (request.File is null || request.File.Length == 0)
         {
-            _logger.LogWarning("Document validation rejected: empty file payload");
+            _logger.LogWarning("Проверка документа отклонена: передан пустой файл");
             return BadRequest(new DocumentValidationResponse
             {
                 Status = "bad_request",
@@ -43,23 +45,47 @@ public class DocumentsController : ControllerBase
         }
 
         _logger.LogInformation(
-            "Document validation started for {FileName} ({FileSize} bytes), hint={DocumentTypeHint}",
+            "Запущена проверка документа {FileName} ({FileSize} байт), подсказка типа={DocumentTypeHint}",
             request.File.FileName,
             request.File.Length,
-            request.DocumentTypeHint ?? "<none>");
+            request.DocumentTypeHint ?? "<нет>");
 
-        await using var stream = request.File.OpenReadStream();
-        var response = await _documentValidationService.ValidateAsync(
-            stream,
-            request.File.FileName,
-            request.DocumentTypeHint,
-            ct);
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(ValidationTimeoutSeconds));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+
+        DocumentValidationResponse response;
+
+        try
+        {
+            await using var stream = request.File.OpenReadStream();
+            response = await _documentValidationService.ValidateAsync(
+                stream,
+                request.File.FileName,
+                request.DocumentTypeHint,
+                request.SummaryOnly,
+                linkedCts.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                "Проверка документа прервана по таймауту: файл={FileName}, лимит={TimeoutSeconds}с, elapsed={ElapsedMs}мс",
+                request.File.FileName,
+                ValidationTimeoutSeconds,
+                sw.ElapsedMilliseconds);
+
+            return StatusCode(StatusCodes.Status504GatewayTimeout, new DocumentValidationResponse
+            {
+                Status = "timeout",
+                Summary = "Проверка документа заняла слишком много времени и была остановлена по таймауту.",
+                Remarks = { "Сервис не завершил обработку документа в отведенное время. Попробуйте повторить позже." }
+            });
+        }
 
         _logger.LogInformation(
-            "Document validation finished for {FileName}: status={Status}, docType={DocumentType}, remarks={RemarksCount}, extractedTextLength={ExtractedTextLength}, elapsedMs={ElapsedMs}",
+            "Проверка документа завершена для {FileName}: статус={Status}, тип={DocumentType}, замечаний={RemarksCount}, длина извлеченного текста={ExtractedTextLength}, время={ElapsedMs}мс",
             request.File.FileName,
             response.Status,
-            response.DocumentType ?? "<unknown>",
+            response.DocumentType ?? "<неизвестно>",
             response.Remarks.Count,
             response.ExtractedTextLength,
             sw.ElapsedMilliseconds);

@@ -94,7 +94,7 @@ public class HealthController : ControllerBase
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            _logger.LogWarning("{ServiceName} health check timed out", serviceName);
+            _logger.LogWarning("Таймаут проверки здоровья сервиса {ServiceName}", serviceName);
             return new ServiceStatus
             {
                 Status = UnavailableStatus,
@@ -108,7 +108,7 @@ public class HealthController : ControllerBase
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogWarning(ex, "{ServiceName} health check failed", serviceName);
+            _logger.LogWarning(ex, "Проверка здоровья сервиса {ServiceName} завершилась ошибкой", serviceName);
             return new ServiceStatus
             {
                 Status = UnavailableStatus,
@@ -118,7 +118,7 @@ public class HealthController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error during {ServiceName} health check", serviceName);
+            _logger.LogError(ex, "Непредвиденная ошибка во время проверки здоровья сервиса {ServiceName}", serviceName);
             return new ServiceStatus
             {
                 Status = UnavailableStatus,

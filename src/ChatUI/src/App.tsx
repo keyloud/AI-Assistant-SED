@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useMemo, FormEvent } from 'react'
+import { renderAsync } from 'docx-preview'
+import { toPng } from 'html-to-image'
 
 const navItems = [
   { id: 'documents', label: 'Все документы', icon: 'description', active: true },
@@ -52,9 +54,10 @@ type ValidationApiResponse = {
   classificationConfidence?: number
   ocrUsed?: boolean
   extractedTextLength: number
+  extractedText?: string
   summary?: string
   recommendations?: string[]
-  remarks: string[]
+  remarks?: string[]
 }
 
 type DocumentStatus = 'checked' | 'processing' | 'error'
@@ -76,6 +79,14 @@ type ChatItem = {
   documents: DocumentItem[]
   updatedAt: string
   status: ChatStatus
+}
+
+type PendingFilePreview = {
+  name: string
+  sizeLabel: string
+  kindLabel: string
+  previewKind: 'pdf' | 'image'
+  previewUrl: string | null
 }
 
 const initialMessages: ChatMessage[] = [
@@ -195,6 +206,28 @@ function getDocumentIcon(name: string): string {
   return 'description'
 }
 
+function resolveDocumentTypeHint(fileName: string): string | undefined {
+  const lower = fileName.toLowerCase()
+  if (lower.includes('приказ')) return 'приказ'
+  if (lower.includes('довер')) return 'доверенность'
+  if (lower.includes('договор')) return 'договор'
+  return undefined
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 function getStatusBadge(status: DocumentStatus): {
   badge: string
   icon: string
@@ -247,7 +280,15 @@ function getChatStatusBadge(status: ChatStatus): {
   }
 }
 
-function DocumentsTable({ chats, onOpenChat }: { chats: ChatItem[]; onOpenChat: (chat: ChatItem) => void }) {
+function DocumentsTable({
+  chats,
+  onOpenChat,
+  onDeleteChat,
+}: {
+  chats: ChatItem[]
+  onOpenChat: (chat: ChatItem) => void
+  onDeleteChat: (chatId: string) => void
+}) {
   return (
     <div className="rounded-2xl bg-white shadow-sm overflow-hidden border border-[#dce3ee]">
       <table className="w-full text-left border-collapse">
@@ -315,12 +356,21 @@ function DocumentsTable({ chats, onOpenChat }: { chats: ChatItem[]; onOpenChat: 
                 </td>
 
                 <td className="py-4 px-6 text-right">
-                  <button
-                    onClick={() => onOpenChat(chat)}
-                    className="text-[#0053db] hover:bg-[#eef3fa] px-3 py-1.5 rounded-lg transition-colors font-medium text-sm"
-                  >
-                    Открыть
-                  </button>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => onOpenChat(chat)}
+                      className="text-[#0053db] hover:bg-[#eef3fa] px-3 py-1.5 rounded-lg transition-colors font-medium text-sm"
+                    >
+                      Открыть
+                    </button>
+                    <button
+                      onClick={() => onDeleteChat(chat.id)}
+                      className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-[#93000a] hover:bg-[#fff1f1] transition-colors"
+                      title="Удалить чат"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  </div>
                 </td>
               </tr>
             )
@@ -331,7 +381,15 @@ function DocumentsTable({ chats, onOpenChat }: { chats: ChatItem[]; onOpenChat: 
   )
 }
 
-function DocumentsView({ documents, onOpenDocument }: { documents: ChatItem[]; onOpenDocument: (chat: ChatItem) => void }) {
+function DocumentsView({
+  documents,
+  onOpenDocument,
+  onDeleteChat,
+}: {
+  documents: ChatItem[]
+  onOpenDocument: (chat: ChatItem) => void
+  onDeleteChat: (chatId: string) => void
+}) {
   const [searchQuery, setSearchQuery] = useState('')
 
   const filteredChats = documents.filter(
@@ -378,7 +436,7 @@ function DocumentsView({ documents, onOpenDocument }: { documents: ChatItem[]; o
         </div>
       </header>
 
-      <DocumentsTable chats={filteredChats} onOpenChat={onOpenDocument} />
+      <DocumentsTable chats={filteredChats} onOpenChat={onOpenDocument} onDeleteChat={onDeleteChat} />
 
       <div className="flex items-center justify-between mt-6 px-2">
         <span className="text-sm text-[#64748b] font-medium">
@@ -396,10 +454,9 @@ function DocumentDetailsView({
   messages,
   inputValue,
   isLoading,
-  isValidating,
   errorText,
   selectedFile,
-  documentType: _documentType,
+  documentPreview,
   attachmentLimitReached,
   onInputChange,
   onFileSelect,
@@ -411,10 +468,9 @@ function DocumentDetailsView({
   messages: ChatMessage[]
   inputValue: string
   isLoading: boolean
-  isValidating: boolean
   errorText: string | null
   selectedFile: File | null
-  documentType: string | null
+  documentPreview: PendingFilePreview | null
   attachmentLimitReached: boolean
   onInputChange: (value: string) => void
   onFileSelect: (file: File | null) => void
@@ -425,7 +481,7 @@ function DocumentDetailsView({
 
   useEffect(() => {
     endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isLoading, isValidating])
+  }, [messages, isLoading])
 
   const statusInfo = document ? getStatusBadge(document.status) : null
 
@@ -469,9 +525,21 @@ function DocumentDetailsView({
           {/* Document Preview Card */}
           <div className="bg-white rounded-xl p-6 shadow-sm flex flex-col gap-6 shrink-0 relative overflow-hidden group cursor-pointer border border-[#dce3ee]">
             <div className="aspect-[3/4] w-full bg-[#eef3fa] rounded-lg overflow-hidden relative flex items-center justify-center">
-              <span className="material-symbols-outlined text-[64px] text-[#0053db] opacity-50">
-                {document ? getDocumentIcon(document.name) : 'chat'}
-              </span>
+              {documentPreview?.previewUrl ? (
+                documentPreview.previewKind === 'pdf' ? (
+                  <iframe
+                    title={`Превью документа ${documentPreview.name}`}
+                    src={`${documentPreview.previewUrl}#page=1&toolbar=0&navpanes=0&scrollbar=0`}
+                    className="h-full w-full border-0 bg-white"
+                  />
+                ) : (
+                  <img src={documentPreview.previewUrl} alt={`Превью документа ${documentPreview.name}`} className="h-full w-full object-contain bg-white" />
+                )
+              ) : (
+                <span className="material-symbols-outlined text-[64px] text-[#0053db] opacity-50">
+                  {document ? getDocumentIcon(document.name) : 'chat'}
+                </span>
+              )}
             </div>
           </div>
 
@@ -612,25 +680,39 @@ function DocumentDetailsView({
               <button
                 type="button"
                 className="rounded-lg p-2 text-[#64748b] hover:text-[#0053db] hover:bg-[#f3f6fa] transition-colors shrink-0"
-                title={attachmentLimitReached ? 'Достигнут лимит: 3 файла в чате' : 'Прикрепить PDF или DOCX'}
+                title={attachmentLimitReached ? 'Достигнут лимит: 1 файл в чате' : 'Прикрепить PDF или DOCX'}
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isLoading || isValidating || attachmentLimitReached}
+                disabled={isLoading || attachmentLimitReached}
               >
                 <span className="material-symbols-outlined">attach_file</span>
               </button>
+              {selectedFile && (
+                <div className="flex max-w-[240px] items-center gap-2 rounded-xl border border-[#dce3ee] bg-[#f8fbff] px-3 py-2 text-xs text-[#1a1d22]">
+                  <span className="truncate font-medium">{selectedFile.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => onFileSelect(null)}
+                    className="rounded-full p-1 text-[#64748b] hover:bg-white hover:text-[#93000a]"
+                    aria-label="Убрать прикрепленный файл"
+                    disabled={isLoading}
+                  >
+                    <span className="material-symbols-outlined text-[16px]">close</span>
+                  </button>
+                </div>
+              )}
               <textarea
                 value={inputValue}
                 onChange={(e) => onInputChange(e.target.value)}
                 placeholder="Спросите что-нибудь о документе..."
                 className="flex-1 bg-transparent border-none focus:ring-0 resize-none text-[0.875rem] py-2.5 px-3 max-h-32 text-[#1a1d22] placeholder:text-[#64748b]/50 focus:outline-none"
                 rows={1}
-                disabled={isLoading || isValidating}
+                disabled={isLoading}
               />
               <div className="flex items-center gap-2 self-end shrink-0 p-1">
                 <button
                   type="button"
                   className="p-2 text-[#64748b] hover:text-[#0053db] hover:bg-[#f3f6fa] rounded-lg transition-colors"
-                  disabled={isLoading || isValidating}
+                  disabled={isLoading}
                 >
                   <span className="material-symbols-outlined text-[20px]" data-icon="mic">
                     mic
@@ -639,7 +721,7 @@ function DocumentDetailsView({
                 <button
                   type="submit"
                   className="bg-[#0053db] text-white p-2 rounded-lg hover:opacity-90 transition-opacity shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={isLoading || isValidating || (!inputValue.trim() && !selectedFile)}
+                  disabled={isLoading || (!inputValue.trim() && !selectedFile)}
                 >
                   <span className="material-symbols-outlined text-[18px]" data-icon="send">
                     send
@@ -649,7 +731,7 @@ function DocumentDetailsView({
             </form>
             {attachmentLimitReached && (
               <div className="mt-2 rounded-lg border border-[#ffd9b8] bg-[#fff4ea] px-3 py-2 text-xs text-[#7d2d00]">
-                В этом чате уже 3 документа. Чтобы прикрепить новый, удалите один из текущих или создайте новый чат.
+                В этом чате уже есть документ. Чтобы прикрепить новый, создайте новый чат.
               </div>
             )}
             <div className="mt-2 text-center">
@@ -666,18 +748,23 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [isValidating, setIsValidating] = useState(false)
   const [errorText, setErrorText] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [documentType, setDocumentType] = useState<string | null>(null)
+  const [pendingFilePreview, setPendingFilePreview] = useState<PendingFilePreview | null>(null)
+  const [committedPreviewsBySession, setCommittedPreviewsBySession] = useState<Record<string, PendingFilePreview>>({})
   const [activeView, setActiveView] = useState<'documents' | 'document-details'>('documents')
   const [chats, setChats] = useState<ChatItem[]>([])
   const [selectedChat, setSelectedChat] = useState<ChatItem | null>(null)
   const [selectedDocument, setSelectedDocument] = useState<DocumentItem | null>(null)
   const [isBootstrappingChats, setIsBootstrappingChats] = useState(false)
-  const attachmentLimitReached = (selectedChat?.documents.length ?? 0) >= 3
+  const [activeSessionId, setActiveSessionId] = useState('')
 
-  const selectedSessionId = selectedChat?.id ?? ''
+  const activeChat = chats.find((chat) => chat.id === activeSessionId) ?? selectedChat
+  const attachmentLimitReached = (activeChat?.documents.length ?? 0) >= 1
+
+  const selectedSessionId = activeSessionId
+  const activeCommittedPreview = selectedSessionId ? committedPreviewsBySession[selectedSessionId] ?? null : null
+  const activeDocumentPreview = pendingFilePreview ?? activeCommittedPreview
 
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
   const conversationHistory = useMemo(
@@ -691,7 +778,51 @@ export default function App() {
 
   useEffect(() => {
     endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isLoading, isValidating])
+  }, [messages, isLoading])
+
+  useEffect(() => {
+    return () => {
+      if (pendingFilePreview?.previewUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(pendingFilePreview.previewUrl)
+      }
+
+      Object.values(committedPreviewsBySession).forEach((preview) => {
+        if (preview.previewUrl?.startsWith('blob:')) {
+          URL.revokeObjectURL(preview.previewUrl)
+        }
+      })
+    }
+  }, [pendingFilePreview, committedPreviewsBySession])
+
+  function revokePreview(preview: PendingFilePreview | null | undefined) {
+    if (preview?.previewUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(preview.previewUrl)
+    }
+  }
+
+  function clearPendingAttachment() {
+    revokePreview(pendingFilePreview)
+    setSelectedFile(null)
+    setPendingFilePreview(null)
+  }
+
+  function commitPendingPreview(sessionId: string) {
+    if (!pendingFilePreview) {
+      return
+    }
+
+    setCommittedPreviewsBySession((prev) => {
+      const existing = prev[sessionId]
+      if (existing && existing.previewUrl !== pendingFilePreview.previewUrl) {
+        revokePreview(existing)
+      }
+
+      return {
+        ...prev,
+        [sessionId]: pendingFilePreview,
+      }
+    })
+  }
 
   useEffect(() => {
     let isMounted = true
@@ -726,192 +857,224 @@ export default function App() {
     }
   }, [])
 
-  async function runDocumentValidation(file: File) {
-    if (attachmentLimitReached) {
-      setErrorText('В этом чате уже 3 документа. Добавление нового файла недоступно.')
-      return
-    }
-
-    setIsValidating(true)
-    setErrorText(null)
-
+  async function validateDocument(file: File): Promise<{ message: string; fullTextContext: string }> {
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('summaryOnly', 'true')
 
-    const lowerName = file.name.toLowerCase()
-    if (lowerName.includes('договор')) {
-      formData.append('documentTypeHint', 'договор')
-    } else if (lowerName.includes('довер')) {
-      formData.append('documentTypeHint', 'доверенность')
-    } else if (lowerName.includes('приказ')) {
-      formData.append('documentTypeHint', 'приказ')
+    const typeHint = resolveDocumentTypeHint(file.name)
+    if (typeHint) {
+      formData.append('documentTypeHint', typeHint)
     }
 
+    const response = await fetchWithTimeout('/api/documents/validate', {
+      method: 'POST',
+      body: formData,
+    }, 240000)
+
+    const payload = (await response.json().catch(() => null)) as ValidationApiResponse | null
+    if (!response.ok || payload === null) {
+      throw new Error('Не удалось выполнить анализ документа.')
+    }
+
+    console.info('Документ проанализирован на клиенте', {
+      fileName: file.name,
+      extractedTextLength: payload.extractedTextLength,
+      hasExtractedText: Boolean(payload.extractedText),
+    })
+
+    const messageParts: string[] = [`Файл ${file.name} обработан.`]
+    if (payload.documentType) {
+      messageParts.push(`Тип документа: ${payload.documentType}.`)
+    }
+    if (payload.summary) {
+      messageParts.push(`Выжимка: ${payload.summary}`)
+    }
+    if (payload.ocrUsed) {
+      messageParts.push('Для извлечения текста был применен OCR.')
+    }
+
+    const contextParts: string[] = []
+    if (payload.documentType) {
+      contextParts.push(`Тип документа: ${payload.documentType}`)
+    }
+    if (payload.extractedText) {
+      contextParts.push(payload.extractedText)
+    } else if (payload.summary) {
+      contextParts.push(payload.summary)
+    }
+
+    const fullTextContext = contextParts.join('\n\n').trim()
+    return {
+      message: messageParts.join('\n\n'),
+      fullTextContext,
+    }
+  }
+
+  async function attachFileToChat(file: File, contextSummary?: string) {
+    if (!selectedSessionId) {
+      throw new Error('Сначала создайте или откройте чат.')
+    }
+
+    const newDoc: DocumentItem = {
+      id: `doc-${Date.now()}`,
+      name: file.name,
+      uploadDate: new Date().toLocaleString('ru-RU'),
+      status: 'processing',
+      size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+      uploadedBy: 'Текущий пользователь',
+    }
+
+    const response = await fetch(`/api/chat/sessions/${selectedSessionId}/documents`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify({
+        name: newDoc.name,
+        uploadDate: newDoc.uploadDate,
+        status: newDoc.status,
+        size: newDoc.size,
+        uploadedBy: newDoc.uploadedBy,
+        contextSummary,
+      }),
+    })
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null
+      throw new Error(payload?.error || `HTTP ${response.status}`)
+    }
+
+    const session = (await response.json()) as ChatSessionApiResponse
+    const mapped = mapApiChatToUi(session)
+
+    console.info('Контекст документа сохранен в сессии чата', {
+      sessionId: mapped.id,
+      fileName: file.name,
+      contextLength: contextSummary?.length ?? 0,
+    })
+
+    setChats((prev) => [mapped, ...prev.filter((chat) => chat.id !== mapped.id)])
+    setSelectedChat(mapped)
+    setActiveSessionId(mapped.id)
+    setSelectedDocument(mapped.documents[0] ?? null)
+
+    return mapped
+  }
+
+  async function renderDocxFirstPageToPng(file: File): Promise<string> {
+    console.debug('DOCX preview: start render', {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+    })
+
+    const container = document.createElement('div')
+    container.style.position = 'fixed'
+    container.style.left = '-10000px'
+    container.style.top = '0'
+    container.style.width = '794px'
+    container.style.background = '#ffffff'
+    document.body.appendChild(container)
+
     try {
-      const response = await fetch('/api/documents/validate', {
-        method: 'POST',
-        body: formData,
+      const content = await file.arrayBuffer()
+      await renderAsync(content, container, undefined, {
+        inWrapper: false,
+        ignoreWidth: false,
+        ignoreHeight: false,
+        breakPages: true,
       })
 
-      const data = (await response.json()) as ValidationApiResponse
+      // Даем браузеру применить стили и разметку после renderAsync.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
-      if (!response.ok) {
-        throw new Error(data.remarks?.join(' ') || `HTTP ${response.status}`)
+      const firstPageCandidates = [
+        '.docx-wrapper > section',
+        'section.docx',
+        '.docx section',
+        '.docx-wrapper',
+        '.docx',
+        'article',
+        'div',
+      ]
+
+      const firstPage =
+        firstPageCandidates
+          .map((selector) => container.querySelector(selector))
+          .find((node): node is HTMLElement => node instanceof HTMLElement && node.tagName !== 'STYLE') ?? null
+
+      if (!firstPage) {
+        throw new Error('DOCX preview: page node was not found')
       }
 
-      setDocumentType(data.documentType ?? null)
+      const rect = firstPage.getBoundingClientRect()
+      console.debug('DOCX preview: page selected', {
+        tagName: firstPage.tagName,
+        className: firstPage.className,
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      })
 
-      const summaryParts: string[] = []
-      const statusLabel =
-        data.status === 'ok'
-          ? 'успешно'
-          : data.status === 'template_not_found'
-            ? 'с частичной определенностью'
-            : 'с замечаниями'
+      const pngDataUrl = await toPng(firstPage, {
+        backgroundColor: '#ffffff',
+        pixelRatio: 2,
+        // cacheBust добавляет query-string к URL ресурсов. Для blob: URL это ломает загрузку.
+        cacheBust: false,
+      })
 
-      summaryParts.push(`Проверка файла ${file.name} завершена ${statusLabel}.`)
+      console.debug('DOCX preview: png generated', {
+        fileName: file.name,
+        dataUrlLength: pngDataUrl.length,
+      })
 
-      if (data.documentType) {
-        summaryParts.push(`Тип документа: ${data.documentType}.`)
-      }
-
-      if (typeof data.classificationConfidence === 'number') {
-        summaryParts.push(`Уверенность классификации: ${(data.classificationConfidence * 100).toFixed(1)}%.`)
-      }
-
-      if (data.ocrUsed) {
-        summaryParts.push('Для документа был применен OCR.')
-      }
-
-      if (data.summary) {
-        summaryParts.push(`Выжимка: ${data.summary}`)
-      }
-
-      if (data.recommendations && data.recommendations.length > 0) {
-        summaryParts.push(`Рекомендации:\n${data.recommendations.map((item, index) => `${index + 1}. ${item}`).join('\n')}`)
-      }
-
-      if (data.remarks.length > 0) {
-        summaryParts.push(`Замечания (${data.remarks.length}):\n${data.remarks.map((item) => `- ${item}`).join('\n')}`)
-      }
-
-      const summaryText = summaryParts.join('\n\n')
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `assistant-validation-${Date.now()}`,
-          role: 'assistant',
-          content: summaryText,
-        },
-      ])
-
-      // Добавить новый документ в выбранный чат
-      const newDoc: DocumentItem = {
-        id: `doc-${Date.now()}`,
-        name: file.name,
-        uploadDate: new Date().toLocaleString('ru-RU'),
-        status: data.status === 'ok' ? 'checked' : data.status === 'bad_request' ? 'error' : 'processing',
-        size: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
-        uploadedBy: 'Текущий пользователь',
-      }
-
-      if (selectedChat) {
-        try {
-          const attachResponse = await fetch(`/api/chat/sessions/${selectedChat.id}/documents`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json; charset=utf-8',
-            },
-            body: JSON.stringify({
-              name: newDoc.name,
-              uploadDate: newDoc.uploadDate,
-              status: newDoc.status,
-              size: newDoc.size,
-              uploadedBy: newDoc.uploadedBy,
-            }),
-          })
-
-          if (attachResponse.ok) {
-            const session = (await attachResponse.json()) as ChatSessionApiResponse
-            const mapped = mapApiChatToUi(session)
-
-            setChats((prev) => [mapped, ...prev.filter((chat) => chat.id !== mapped.id)])
-            setSelectedChat(mapped)
-            setSelectedDocument(mapped.documents[0] ?? null)
-          } else {
-            setChats((prev) =>
-              prev.map((chat) =>
-                chat.id === selectedChat.id
-                  ? {
-                      ...chat,
-                      documents: [newDoc, ...chat.documents].slice(0, 3),
-                      updatedAt: 'Только что',
-                    }
-                  : chat,
-              ),
-            )
-            setSelectedDocument(newDoc)
-          }
-        } catch {
-          setChats((prev) =>
-            prev.map((chat) =>
-              chat.id === selectedChat.id
-                ? {
-                    ...chat,
-                    documents: [newDoc, ...chat.documents].slice(0, 3),
-                    updatedAt: 'Только что',
-                  }
-                : chat,
-            ),
-          )
-          setSelectedDocument(newDoc)
-        }
-      }
-    } catch {
-      setErrorText('Не удалось выполнить проверку документа. Проверьте /api/documents/validate.')
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `assistant-validation-error-${Date.now()}`,
-          role: 'assistant',
-          content: 'Сервис проверки документа временно недоступен. Попробуйте снова.',
-        },
-      ])
+      return pngDataUrl
     } finally {
-      setIsValidating(false)
+      document.body.removeChild(container)
+    }
+  }
+
+  async function buildSelectedFilePreview(file: File): Promise<PendingFilePreview> {
+    const lowerName = file.name.toLowerCase()
+    const isPdf = file.type === 'application/pdf' || lowerName.endsWith('.pdf')
+    const isDocx = file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || lowerName.endsWith('.docx')
+
+    if (isPdf) {
+      return {
+        name: file.name,
+        sizeLabel: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+        kindLabel: 'PDF',
+        previewKind: 'pdf',
+        previewUrl: URL.createObjectURL(file),
+      }
+    }
+
+    if (isDocx) {
+      const pngDataUrl = await renderDocxFirstPageToPng(file)
+
+      return {
+        name: file.name,
+        sizeLabel: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+        kindLabel: 'DOCX',
+        previewKind: 'image',
+        previewUrl: pngDataUrl,
+      }
+    }
+
+    return {
+      name: file.name,
+      sizeLabel: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+      kindLabel: 'Документ',
+      previewKind: 'image',
+      previewUrl: null,
     }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (selectedFile) {
-      if (attachmentLimitReached) {
-        setErrorText('В этом чате уже 3 документа. Добавление нового файла недоступно.')
-        setSelectedFile(null)
-        return
-      }
-
-      const currentFile = selectedFile
-      setSelectedFile(null)
-      setInputValue('')
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `user-file-${Date.now()}`,
-          role: 'user',
-          content: `Проверь документ: ${currentFile.name}`,
-        },
-      ])
-
-      await runDocumentValidation(currentFile)
-      return
-    }
-
     const trimmed = inputValue.trim()
-    if (!trimmed || isLoading || isValidating) {
+    if ((!trimmed && !selectedFile) || isLoading) {
       return
     }
 
@@ -920,19 +1083,51 @@ export default function App() {
       return
     }
 
-    const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: trimmed,
-    }
-
-    setMessages((prev) => [...prev, userMessage])
-    setInputValue('')
     setIsLoading(true)
     setErrorText(null)
 
     try {
-      const response = await fetch('/api/chat', {
+      const attachedFileName = selectedFile?.name ?? null
+      let attachedFileContent: string | null = null
+
+      if (selectedFile) {
+        // Сначала получаем содержательный контекст файла, потом фиксируем его в сессии.
+        const validation = await validateDocument(selectedFile)
+        attachedFileContent = validation.fullTextContext || null
+
+        await attachFileToChat(selectedFile, attachedFileContent ?? undefined)
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-validation-${Date.now()}`,
+            role: 'assistant',
+            content: validation.message,
+          },
+        ])
+
+        if (selectedSessionId) {
+          commitPendingPreview(selectedSessionId)
+        }
+
+        setSelectedFile(null)
+        setPendingFilePreview(null)
+
+        if (!trimmed) {
+          return
+        }
+      }
+
+      const userMessage: ChatMessage = {
+        id: `user-${Date.now()}`,
+        role: 'user',
+        content: trimmed,
+      }
+
+      setMessages((prev) => [...prev, userMessage])
+      setInputValue('')
+
+      const response = await fetchWithTimeout('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
@@ -940,9 +1135,11 @@ export default function App() {
         body: JSON.stringify({
           sessionId: selectedSessionId,
           message: trimmed,
+          attachedFileName,
+          attachedFileContent,
           conversationHistory,
         }),
-      })
+      }, 120000)
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
@@ -983,14 +1180,21 @@ export default function App() {
             : prev,
         )
       }
-    } catch {
-      setErrorText('Не удалось получить ответ от backend. Проверьте доступность /api/chat.')
+    } catch (error) {
+      const isAbort = error instanceof DOMException && error.name === 'AbortError'
+      setErrorText(
+        isAbort
+          ? 'Запрос превысил лимит ожидания. Попробуйте снова или уменьшите размер документа.'
+          : 'Не удалось получить ответ от backend. Проверьте доступность /api/chat.',
+      )
       setMessages((prev) => [
         ...prev,
         {
           id: `assistant-error-${Date.now()}`,
           role: 'assistant',
-          content: 'Сервис временно недоступен. Попробуйте отправить запрос еще раз.',
+          content: isAbort
+            ? 'Сервис не успел обработать запрос за отведенное время. Попробуйте еще раз.'
+            : 'Сервис временно недоступен. Попробуйте отправить запрос еще раз.',
         },
       ])
     } finally {
@@ -998,8 +1202,41 @@ export default function App() {
     }
   }
 
+  async function handleDeleteChat(chatId: string) {
+    try {
+      const response = await fetch(`/api/chat/sessions/${chatId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok && response.status !== 204) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      setChats((prev) => prev.filter((chat) => chat.id !== chatId))
+
+      setCommittedPreviewsBySession((prev) => {
+        const { [chatId]: removed, ...rest } = prev
+        revokePreview(removed)
+        return rest
+      })
+
+      if (selectedSessionId === chatId) {
+        setActiveView('documents')
+        setSelectedChat(null)
+        setSelectedDocument(null)
+        setActiveSessionId('')
+        setMessages(initialMessages)
+        setInputValue('')
+        clearPendingAttachment()
+      }
+    } catch {
+      setErrorText('Не удалось удалить чат. Попробуйте снова.')
+    }
+  }
+
   async function handleOpenDocument(chat: ChatItem) {
     setSelectedChat(chat)
+    setActiveSessionId(chat.id)
     setSelectedDocument(chat.documents[0] ?? null)
     setActiveView('document-details')
 
@@ -1012,6 +1249,7 @@ export default function App() {
       const session = (await response.json()) as ChatSessionApiResponse
       const mapped = mapApiChatToUi(session)
       setSelectedChat(mapped)
+      setActiveSessionId(mapped.id)
       setSelectedDocument(mapped.documents[0] ?? null)
       setChats((prev) => [mapped, ...prev.filter((item) => item.id !== mapped.id)])
 
@@ -1051,31 +1289,60 @@ export default function App() {
 
       setChats((prev) => [mapped, ...prev])
       setSelectedChat(mapped)
+      setActiveSessionId(mapped.id)
       setSelectedDocument(null)
       setMessages(initialMessages)
       setInputValue('')
-      setSelectedFile(null)
-      setDocumentType(null)
+      clearPendingAttachment()
       setActiveView('document-details')
     } catch {
       setErrorText('Не удалось создать новый чат. Попробуйте снова.')
     }
   }
 
-  function handleFileSelect(file: File | null) {
+  async function handleFileSelect(file: File | null) {
     if (!file) {
-      setSelectedFile(null)
+      clearPendingAttachment()
       return
     }
 
     if (attachmentLimitReached) {
-      setSelectedFile(null)
-      setErrorText('В этом чате уже 3 документа. Добавление нового файла недоступно.')
+      clearPendingAttachment()
+      setErrorText('В этом чате уже есть документ. Добавление нового файла недоступно.')
       return
     }
 
     setErrorText(null)
+    clearPendingAttachment()
     setSelectedFile(file)
+
+    console.debug('File selected for preview', {
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type,
+    })
+
+    try {
+      const preview = await buildSelectedFilePreview(file)
+      setPendingFilePreview(preview)
+      console.debug('Preview prepared', {
+        fileName: file.name,
+        previewKind: preview.previewKind,
+        hasPreviewUrl: Boolean(preview.previewUrl),
+      })
+    } catch (error) {
+      console.error('Preview generation failed', {
+        fileName: file.name,
+        error,
+      })
+      setPendingFilePreview({
+        name: file.name,
+        sizeLabel: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+        kindLabel: 'Документ',
+        previewKind: 'image',
+        previewUrl: null,
+      })
+    }
   }
 
   return (
@@ -1158,10 +1425,9 @@ export default function App() {
                 messages={messages}
                 inputValue={inputValue}
                 isLoading={isLoading}
-                isValidating={isValidating}
                 errorText={errorText}
                 selectedFile={selectedFile}
-                documentType={documentType}
+                documentPreview={activeDocumentPreview}
                 attachmentLimitReached={attachmentLimitReached}
                 onInputChange={setInputValue}
                 onFileSelect={handleFileSelect}
@@ -1174,7 +1440,7 @@ export default function App() {
                     Загрузка чатов...
                   </div>
                 ) : (
-                  <DocumentsView documents={chats} onOpenDocument={handleOpenDocument} />
+                  <DocumentsView documents={chats} onOpenDocument={handleOpenDocument} onDeleteChat={handleDeleteChat} />
                 )}
               </>
             )}
