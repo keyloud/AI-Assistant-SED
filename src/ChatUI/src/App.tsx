@@ -19,6 +19,14 @@ type ChatMessage = {
   id: string
   role: MessageRole
   content: string
+  ragSources?: RagSource[]
+}
+
+type RagSource = {
+  title: string
+  sourceFile?: string
+  section: string
+  score: number
 }
 
 type ChatApiResponse = {
@@ -26,6 +34,7 @@ type ChatApiResponse = {
   chatTitle?: string
   updatedAt?: string
   response: string
+  ragSources?: RagSource[]
 }
 
 type ChatSessionApiResponse = {
@@ -228,6 +237,57 @@ async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, tim
   }
 }
 
+function parseMarkdownFormatting(text: string): (string | React.ReactElement)[] {
+  const result: (string | React.ReactElement)[] = []
+  let lastIndex = 0
+  let keyCounter = 0
+
+  // Регулярное выражение для поиска **текст**, *текст*, _текст_
+  // Используем более сложное выражение для правильного парсинга
+  const regex = /\*\*(.+?)\*\*|\*([^\*]+?)\*|_([^_]+?)_/g
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    // Добавляем текст перед этим совпадением
+    if (match.index > lastIndex) {
+      result.push(text.slice(lastIndex, match.index))
+    }
+
+    // Добавляем форматированный элемент
+    if (match[1]) {
+      // **текст** - жирный
+      result.push(
+        <strong key={`strong-${keyCounter++}`} className="font-semibold">
+          {match[1]}
+        </strong>,
+      )
+    } else if (match[2]) {
+      // *текст* - курсив
+      result.push(
+        <em key={`em1-${keyCounter++}`} className="italic">
+          {match[2]}
+        </em>,
+      )
+    } else if (match[3]) {
+      // _текст_ - курсив
+      result.push(
+        <em key={`em2-${keyCounter++}`} className="italic">
+          {match[3]}
+        </em>,
+      )
+    }
+
+    lastIndex = match.index + match[0].length
+  }
+
+  // Добавляем оставшийся текст
+  if (lastIndex < text.length) {
+    result.push(text.slice(lastIndex))
+  }
+
+  return result.length === 0 ? [text] : result
+}
+
 function getStatusBadge(status: DocumentStatus): {
   badge: string
   icon: string
@@ -290,19 +350,20 @@ function DocumentsTable({
   onDeleteChat: (chatId: string) => void
 }) {
   return (
-    <div className="rounded-2xl bg-white shadow-sm overflow-hidden border border-[#dce3ee]">
-      <table className="w-full text-left border-collapse">
-        <thead>
-          <tr className="border-b border-[#dce3ee] text-xs font-medium text-[#64748b] uppercase tracking-wider">
-            <th className="py-5 px-6">Название чата</th>
-            <th className="py-5 px-6">Документ</th>
-            <th className="py-5 px-6">Дата обновления</th>
-            <th className="py-5 px-6">Статус</th>
-            <th className="py-5 px-6 text-right">Действия</th>
-          </tr>
-        </thead>
-        <tbody className="text-sm divide-y divide-[#dce3ee]">
-          {chats.map((chat) => {
+    <div className="rounded-2xl bg-white shadow-sm overflow-hidden border border-[#dce3ee] flex flex-col">
+      <div className="max-h-[420px] overflow-y-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-[#dce3ee] text-xs font-medium text-[#64748b] uppercase tracking-wider sticky top-0 bg-white">
+              <th className="py-5 px-6">Название чата</th>
+              <th className="py-5 px-6">Документ</th>
+              <th className="py-5 px-6">Дата обновления</th>
+              <th className="py-5 px-6">Статус</th>
+              <th className="py-5 px-6 text-right">Действия</th>
+            </tr>
+          </thead>
+          <tbody className="text-sm divide-y divide-[#dce3ee]">
+            {chats.map((chat) => {
             const statusInfo = getChatStatusBadge(chat.status)
             const hasDocuments = chat.documents.length > 0
             const firstDocument = chat.documents[0]
@@ -310,7 +371,11 @@ function DocumentsTable({
             const icon = hasDocuments ? getDocumentIcon(firstDocument.name) : 'chat'
 
             return (
-              <tr key={chat.id} className="hover:bg-[#f3f6fa] transition-colors">
+              <tr 
+                key={chat.id} 
+                className="hover:bg-[#f3f6fa] transition-colors cursor-pointer"
+                onClick={() => onOpenChat(chat)}
+              >
                 <td className="py-4 px-6">
                   <div className="flex items-center gap-4">
                     <div
@@ -358,13 +423,10 @@ function DocumentsTable({
                 <td className="py-4 px-6 text-right">
                   <div className="flex items-center justify-end gap-2">
                     <button
-                      onClick={() => onOpenChat(chat)}
-                      className="text-[#0053db] hover:bg-[#eef3fa] px-3 py-1.5 rounded-lg transition-colors font-medium text-sm"
-                    >
-                      Открыть
-                    </button>
-                    <button
-                      onClick={() => onDeleteChat(chat.id)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onDeleteChat(chat.id)
+                      }}
                       className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-[#93000a] hover:bg-[#fff1f1] transition-colors"
                       title="Удалить чат"
                     >
@@ -376,7 +438,8 @@ function DocumentsTable({
             )
           })}
         </tbody>
-      </table>
+          </table>
+      </div>
     </div>
   )
 }
@@ -629,13 +692,34 @@ function DocumentDetailsView({
                         <span className="material-symbols-outlined text-base">auto_awesome</span>
                       </div>
                       <article className="max-w-[92%] rounded-2xl rounded-tl-none border-l-4 border-[#0053db] bg-white p-5 shadow-sm">
-                        <p className="whitespace-pre-wrap font-['Inter'] text-sm leading-relaxed text-[#1a1d22]">{message.content}</p>
+                        <p className="whitespace-pre-wrap font-['Inter'] text-sm leading-relaxed text-[#1a1d22]">{parseMarkdownFormatting(message.content)}</p>
+                        {message.ragSources && message.ragSources.length > 0 && (
+                          <div className="mt-4 rounded-xl border border-[#dbe1ff] bg-[#f8fbff] p-3">
+                            <div className="mb-2 flex items-center gap-2 font-['Manrope'] text-xs font-bold uppercase tracking-wide text-[#0053db]">
+                              <span className="material-symbols-outlined text-[16px]">travel_explore</span>
+                              Источники RAG
+                            </div>
+                            <div className="space-y-2">
+                              {message.ragSources.slice(0, 3).map((source, index) => (
+                                <div key={`${source.title}-${source.section}-${index}`} className="rounded-lg bg-white px-3 py-2 text-xs text-[#475569] shadow-sm">
+                                  <div className="font-semibold text-[#1a1d22]">
+                                    {index + 1}. {source.title || source.sourceFile || 'Источник базы знаний'}
+                                  </div>
+                                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                                    {source.section && <span>Раздел: {source.section}</span>}
+                                    <span>score: {source.score.toFixed(3)}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </article>
                     </div>
                   ) : (
                     <div key={message.id} className="flex items-start justify-end gap-3">
                       <div className="max-w-[70%] rounded-2xl rounded-tr-none bg-[#0053db] px-4 py-3 text-white shadow-sm">
-                        <p className="whitespace-pre-wrap font-['Inter'] text-sm">{message.content}</p>
+                        <p className="whitespace-pre-wrap font-['Inter'] text-sm">{parseMarkdownFormatting(message.content)}</p>
                       </div>
                       <div className="h-8 w-8 rounded-full bg-[#dbe1ff] flex-shrink-0" />
                     </div>
@@ -1154,6 +1238,7 @@ export default function App() {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
           content: assistantText,
+          ragSources: data.ragSources ?? [],
         },
       ])
 
