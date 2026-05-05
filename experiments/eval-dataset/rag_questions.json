@@ -1,0 +1,171 @@
+[
+  {
+    "id": "q01",
+    "question": "Что делать, если в рецепте отсутствуют дата или подпись?",
+    "expected_sources": [
+      "01_prescription_check",
+      "01_rules_of_dispensing",
+      "01_refusal_in_dispensing"
+    ],
+    "expected_keywords": [
+      "дата",
+      "подпись",
+      "рецепт",
+      "отказ"
+    ]
+  },
+  {
+    "id": "q02",
+    "question": "Какие обязательные поля должны быть в рецепте перед отпуском препарата?",
+    "expected_sources": [
+      "01_prescription_template",
+      "01_prescription_check",
+      "01_rules_of_dispensing"
+    ],
+    "expected_keywords": [
+      "пациент",
+      "дата",
+      "препарат",
+      "подпись"
+    ]
+  },
+  {
+    "id": "q03",
+    "question": "Когда сотрудник должен отказать в отпуске лекарственного средства?",
+    "expected_sources": [
+      "01_refusal_in_dispensing",
+      "01_rules_of_dispensing"
+    ],
+    "expected_keywords": [
+      "отказ",
+      "нарушение",
+      "рецепт",
+      "препарат"
+    ]
+  },
+  {
+    "id": "q04",
+    "question": "Как действовать при сомнительном или частично заполненном рецепте?",
+    "expected_sources": [
+      "01_prescription_check",
+      "01_refusal_in_dispensing",
+      "01_rules_of_dispensing"
+    ],
+    "expected_keywords": [
+      "уточнение",
+      "ошибка",
+      "рецепт",
+      "проверка"
+    ]
+  },
+  {
+    "id": "q05",
+    "question": "Какие требования предъявляются к хранению и безопасности лекарственных средств?",
+    "expected_sources": [
+      "02_storage_and_safety"
+    ],
+    "expected_keywords": [
+      "хранение",
+      "безопасность",
+      "условия",
+      "препарат"
+    ]
+  },
+  {
+    "id": "q06",
+    "question": "Что нужно проверить при приемке товара и инвентаризации?",
+    "expected_sources": [
+      "02_inventory_and_receiving"
+    ],
+    "expected_keywords": [
+      "приемка",
+      "инвентаризация",
+      "товар",
+      "учет"
+    ]
+  },
+  {
+    "id": "q07",
+    "question": "Как оформить списание просроченных лекарственных средств?",
+    "expected_sources": [
+      "03_writeoff_and_return_rules",
+      "02_obsolete_writeoff"
+    ],
+    "expected_keywords": [
+      "списание",
+      "просроченный",
+      "акт",
+      "возврат"
+    ]
+  },
+  {
+    "id": "q08",
+    "question": "Какие действия выполнить при обнаружении устаревших или просроченных препаратов?",
+    "expected_sources": [
+      "02_obsolete_writeoff",
+      "03_writeoff_and_return_rules"
+    ],
+    "expected_keywords": [
+      "устаревший",
+      "просроченный",
+      "списание",
+      "изъятие"
+    ]
+  },
+  {
+    "id": "q09",
+    "question": "Какие данные должны быть отражены в отчете по результатам проверки?",
+    "expected_sources": [
+      "02_report_template"
+    ],
+    "expected_keywords": [
+      "отчет",
+      "результат",
+      "проверка",
+      "замечания"
+    ]
+  },
+  {
+    "id": "q10",
+    "question": "Как сотруднику корректно объяснить покупателю причину отказа в отпуске препарата?",
+    "expected_sources": [
+      "01_refusal_in_dispensing",
+      "01_rules_of_dispensing"
+    ],
+    "expected_keywords": [
+      "объяснить",
+      "причина",
+      "отказ",
+      "покупатель"
+    ]
+  },
+  {
+    "id": "q11",
+    "question": "Что делать, если в рецепте есть исправления или признаки подделки?",
+    "expected_sources": [
+      "01_prescription_check",
+      "01_rules_of_dispensing"
+    ],
+    "expected_keywords": [
+      "исправления",
+      "подделка",
+      "рецепт",
+      "проверка"
+    ]
+  },
+  {
+    "id": "q12",
+    "question": "Какие документы и правила использовать для проверки рецепта перед отпуском препарата?",
+    "expected_sources": [
+      "01_prescription_template",
+      "01_prescription_check",
+      "01_rules_of_dispensing"
+    ],
+    "expected_keywords": [
+      "шаблон",
+      "инструкция",
+      "правила",
+      "рецепт"
+    ]
+  }
+]

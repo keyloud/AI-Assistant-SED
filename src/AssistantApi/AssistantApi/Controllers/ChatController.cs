@@ -241,6 +241,7 @@ public class ChatController : ControllerBase
                     .Select(chunk => new RagSource
                     {
                         Title = string.IsNullOrWhiteSpace(chunk.DocumentTitle) ? chunk.SourceFile : chunk.DocumentTitle,
+                        SourceFile = chunk.SourceFile,
                         Section = chunk.Section,
                         Score = chunk.RelevanceScore
                     })
@@ -269,6 +270,15 @@ public class ChatController : ControllerBase
         string? attachedFileName = null,
         string? attachedDocumentContext = null)
     {
+        var behavior = """
+            Инструкции к ответу:
+            - Отвечай сразу по сути, без вступлений и без рассуждений о том, как ты отвечаешь.
+            - Не используй формулировки про \"релевантные источники\".
+            - Не вставляй в ответ маркеры вида (Источник 1), (Источник 2) и т.п.
+            - Не используй слово \"источник\" в тексте ответа.
+            - Если в приведенном контексте нет точного ответа, скажи: \"В базе знаний нет точного ответа по этому вопросу.\"
+            """;
+
         var attachedFileBlock = string.IsNullOrWhiteSpace(attachedFileName)
             ? string.Empty
             : $"Прикрепленный файл: {attachedFileName}\n";
@@ -284,23 +294,34 @@ public class ChatController : ControllerBase
             }
 
             return $"""
+                {behavior}
+
                 {attachedFileBlock}
                 {attachedDocumentContextBlock}Вопрос пользователя:
                 {message}
                 """;
         }
 
-        var sources = string.Join("\n\n", ragChunks.Select((chunk, index) =>
-            $"Источник {index + 1}: {chunk.DocumentTitle} {chunk.Section}\n{chunk.Content}".Trim()));
+        var context = string.Join("\n\n", ragChunks
+            .Where(chunk => !string.IsNullOrWhiteSpace(chunk.Content))
+            .Select(chunk =>
+                $"""
+                Документ: {(string.IsNullOrWhiteSpace(chunk.DocumentTitle) ? chunk.SourceFile : chunk.DocumentTitle)}
+                Раздел: {chunk.Section}
+                Файл: {chunk.SourceFile}
+                Текст:
+                {chunk.Content}
+                """.Trim()));
 
         return $"""
-            Ты ассистент СЭД. Отвечай только на основе релевантных источников ниже. Если источники не дают уверенного ответа, так и скажи.
+            Ты ассистент СЭД.
+            {behavior}
 
             {attachedFileBlock}
             {attachedDocumentContextBlock}
 
-            Источники:
-            {sources}
+            Контекст базы знаний:
+            {context}
 
             Вопрос пользователя:
             {message}
@@ -348,7 +369,7 @@ public class ChatController : ControllerBase
             selected = selected[..MaxDocumentContextCharsForPrompt];
         }
 
-        return $"Релевантные фрагменты прикрепленного документа:\n{selected}\n\n[Показаны только наиболее релевантные части документа]";
+        return $"Фрагменты прикрепленного документа:\n{selected}\n\n[Показаны только части документа из-за большого объема]";
     }
 
     private static List<string> SplitDocumentIntoChunks(string text, int chunkSize, int overlap)

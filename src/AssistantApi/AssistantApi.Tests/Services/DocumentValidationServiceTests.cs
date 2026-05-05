@@ -22,7 +22,7 @@ public class DocumentValidationServiceTests
     {
         await using var stream = new MemoryStream(Encoding.UTF8.GetBytes("plain text"));
 
-        var result = await _service.ValidateAsync(stream, "note.txt", null);
+        var result = await _service.ValidateAsync(stream, "note.txt", null, summaryOnly: false);
 
         Assert.Equal("bad_request", result.Status);
         Assert.Contains("Поддерживаются только форматы DOCX и PDF.", result.Remarks);
@@ -34,7 +34,7 @@ public class DocumentValidationServiceTests
         await using var stream = CreateDocx(
             "Договор номер 1 дата 01.01.2026 предмет поставки стороны согласовали срок и подпись.");
 
-        var result = await _service.ValidateAsync(stream, "dogovor.docx", "договор");
+        var result = await _service.ValidateAsync(stream, "dogovor.docx", "договор", summaryOnly: false);
 
         Assert.Equal("ok", result.Status);
         Assert.Equal("договор", result.DocumentType);
@@ -47,7 +47,7 @@ public class DocumentValidationServiceTests
         await using var stream = CreateDocx(
             "Договор номер 1 дата 01.01.2026 предмет поставки стороны согласовали подпись.");
 
-        var result = await _service.ValidateAsync(stream, "dogovor.docx", "договор");
+        var result = await _service.ValidateAsync(stream, "dogovor.docx", "договор", summaryOnly: false);
 
         Assert.Equal("needs_fix", result.Status);
         Assert.Contains(result.Remarks, r => r.Contains("срок", StringComparison.OrdinalIgnoreCase));
@@ -58,7 +58,7 @@ public class DocumentValidationServiceTests
     {
         await using var stream = CreateDocx("Служебная записка на согласование.");
 
-        var result = await _service.ValidateAsync(stream, "note.docx", null);
+        var result = await _service.ValidateAsync(stream, "note.docx", null, summaryOnly: false);
 
         Assert.Equal("template_not_found", result.Status);
         Assert.Contains("Эталонный шаблон не найден", string.Join(" ", result.Remarks));
@@ -69,7 +69,7 @@ public class DocumentValidationServiceTests
     {
         await using var stream = new MemoryStream(Encoding.Latin1.GetBytes("%PDF-1.4 empty content"));
 
-        var result = await _service.ValidateAsync(stream, "scan.pdf", "договор");
+        var result = await _service.ValidateAsync(stream, "scan.pdf", "договор", summaryOnly: false);
 
         Assert.Equal("needs_fix", result.Status);
         Assert.Contains(result.Remarks, r => r.Contains("OCR", StringComparison.OrdinalIgnoreCase));

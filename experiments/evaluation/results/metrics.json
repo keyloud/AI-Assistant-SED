@@ -1,0 +1,11 @@
+{
+  "created_at": "2026-05-05T20:24:39.066767+00:00",
+  "top_k": 3,
+  "questions_total": 12,
+  "questions_successful": 8,
+  "recall_at_k": 0.6666666666666666,
+  "mrr": 0.5833333333333334,
+  "latency_avg_ms": 50679.75,
+  "score_avg": null,
+  "score_count": 0
+}

@@ -25,7 +25,11 @@ try
     builder.Services.Configure<OllamaOptions>(builder.Configuration.GetSection("Ollama"));
     builder.Services.Configure<QdrantOptions>(builder.Configuration.GetSection("Qdrant"));
     builder.Services.Configure<DocumentValidationOptions>(builder.Configuration.GetSection(DocumentValidationOptions.SectionName));
-    builder.Services.AddHttpClient<ILlmService, OllamaHttpClient>();
+    // Ollama generation can take a long time on CPU; increase HttpClient timeout to avoid 502s
+    builder.Services.AddHttpClient<ILlmService, OllamaHttpClient>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(300);
+    });
     builder.Services.AddHttpClient<IRagService, QdrantHttpClient>();
     builder.Services.AddScoped<IDocumentValidationService, DocumentValidationService>();
     builder.Services.AddSingleton<IChatSessionStore, ChatSessionStore>();

@@ -350,11 +350,11 @@ function DocumentsTable({
   onDeleteChat: (chatId: string) => void
 }) {
   return (
-    <div className="rounded-2xl bg-white shadow-sm overflow-hidden border border-[#dce3ee] flex flex-col">
-      <div className="max-h-[420px] overflow-y-auto">
+    <div className="rounded-2xl bg-white shadow-sm overflow-hidden border border-[#dce3ee] flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="border-b border-[#dce3ee] text-xs font-medium text-[#64748b] uppercase tracking-wider sticky top-0 bg-white">
+            <tr className="border-b border-[#dce3ee] text-xs font-medium text-[#64748b] uppercase tracking-wider sticky top-0 z-10 bg-white">
               <th className="py-5 px-6">Название чата</th>
               <th className="py-5 px-6">Документ</th>
               <th className="py-5 px-6">Дата обновления</th>
@@ -437,8 +437,8 @@ function DocumentsTable({
               </tr>
             )
           })}
-        </tbody>
-          </table>
+          </tbody>
+        </table>
       </div>
     </div>
   )
@@ -462,8 +462,8 @@ function DocumentsView({
   )
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col p-6">
-      <header className="mb-8">
+    <main className="flex min-w-0 flex-1 flex-col gap-6 p-6 min-h-0">
+      <header className="shrink-0">
         <h1 className="font-['Manrope'] text-3xl font-extrabold tracking-tight text-[#111827] mb-6">
           Все документы
         </h1>
@@ -499,12 +499,14 @@ function DocumentsView({
         </div>
       </header>
 
-      <DocumentsTable chats={filteredChats} onOpenChat={onOpenDocument} onDeleteChat={onDeleteChat} />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <DocumentsTable chats={filteredChats} onOpenChat={onOpenDocument} onDeleteChat={onDeleteChat} />
 
-      <div className="flex items-center justify-between mt-6 px-2">
-        <span className="text-sm text-[#64748b] font-medium">
-          Показано {filteredChats.length} из {documents.length} чатов
-        </span>
+        <div className="shrink-0 flex items-center justify-between pt-4 px-2">
+          <span className="text-sm text-[#64748b] font-medium">
+            Показано {filteredChats.length} из {documents.length} чатов
+          </span>
+        </div>
       </div>
     </main>
   )
@@ -697,17 +699,15 @@ function DocumentDetailsView({
                           <div className="mt-4 rounded-xl border border-[#dbe1ff] bg-[#f8fbff] p-3">
                             <div className="mb-2 flex items-center gap-2 font-['Manrope'] text-xs font-bold uppercase tracking-wide text-[#0053db]">
                               <span className="material-symbols-outlined text-[16px]">travel_explore</span>
-                              Источники RAG
+                              Документы
                             </div>
                             <div className="space-y-2">
                               {message.ragSources.slice(0, 3).map((source, index) => (
                                 <div key={`${source.title}-${source.section}-${index}`} className="rounded-lg bg-white px-3 py-2 text-xs text-[#475569] shadow-sm">
-                                  <div className="font-semibold text-[#1a1d22]">
-                                    {index + 1}. {source.title || source.sourceFile || 'Источник базы знаний'}
-                                  </div>
+                                  <div className="font-semibold text-[#1a1d22]">{source.title || source.sourceFile || 'Документ базы знаний'}</div>
                                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
                                     {source.section && <span>Раздел: {source.section}</span>}
-                                    <span>score: {source.score.toFixed(3)}</span>
+                                    {source.sourceFile && <span className="truncate">Файл: {source.sourceFile}</span>}
                                   </div>
                                 </div>
                               ))}

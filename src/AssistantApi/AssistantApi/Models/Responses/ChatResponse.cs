@@ -16,6 +16,7 @@ public class ChatResponse
 public class RagSource
 {
     public string Title { get; set; } = string.Empty;
+    public string SourceFile { get; set; } = string.Empty;
     public string Section { get; set; } = string.Empty;
     public float Score { get; set; }
 }

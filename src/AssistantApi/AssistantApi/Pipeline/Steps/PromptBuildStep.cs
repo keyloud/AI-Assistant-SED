@@ -30,16 +30,29 @@ public class PromptBuildStep : IPipelineStep
         }
 
         var ragContext = context.RagResults.Count == 0
-            ? "Релевантные источники не найдены."
-            : string.Join("\n\n", context.RagResults.Select((chunk, index) =>
-                $"Источник {index + 1}: {chunk.DocumentTitle} {chunk.Section}\n{chunk.Content}".Trim()));
+            ? "Контекст по запросу в базе знаний не найден."
+            : string.Join("\n\n", context.RagResults
+                .Where(chunk => !string.IsNullOrWhiteSpace(chunk.Content))
+                .Select(chunk =>
+                    $"""
+                    Документ: {(string.IsNullOrWhiteSpace(chunk.DocumentTitle) ? chunk.SourceFile : chunk.DocumentTitle)}
+                    Раздел: {chunk.Section}
+                    Файл: {chunk.SourceFile}
+                    Текст:
+                    {chunk.Content}
+                    """.Trim()));
 
         context.AugmentedPrompt = $"""
             Ты ассистент СЭД. Ответь на вопрос пользователя по базе знаний кратко и по делу.
 
-            Используй только релевантные источники ниже. Если источников нет, отвечай осторожно и не выдумывай факты.
+            Инструкции к ответу:
+            - Отвечай сразу по сути, без вступлений и без рассуждений о том, как ты отвечаешь.
+            - Не используй формулировки про "релевантные источники".
+            - Не вставляй в ответ маркеры вида (Источник 1), (Источник 2) и т.п.
+            - Не используй слово "источник" в тексте ответа.
+            - Если в контексте ниже нет точного ответа, скажи: "В базе знаний нет точного ответа по этому вопросу."
 
-            Источники:
+            Контекст базы знаний:
             {ragContext}
 
             Вопрос пользователя:
