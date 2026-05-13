@@ -449,7 +449,7 @@ public class DocumentValidationService : IDocumentValidationService
             ? extractedText[.._options.Ml.MaxInputChars]
             : extractedText;
 
-                var prompt = $@"Ты классификатор документов СЭД. Верни строго JSON без пояснений.
+        var prompt = $@"Ты классификатор документов СЭД. Верни строго JSON без пояснений.
 Разрешенные documentType: {string.Join(", ", allowedTypes)}.
 Формат ответа:
 {{

@@ -20,6 +20,7 @@ type ChatMessage = {
   role: MessageRole
   content: string
   ragSources?: RagSource[]
+  attachmentName?: string
 }
 
 type RagSource = {
@@ -719,7 +720,15 @@ function DocumentDetailsView({
                   ) : (
                     <div key={message.id} className="flex items-start justify-end gap-3">
                       <div className="max-w-[70%] rounded-2xl rounded-tr-none bg-[#0053db] px-4 py-3 text-white shadow-sm">
-                        <p className="whitespace-pre-wrap font-['Inter'] text-sm">{parseMarkdownFormatting(message.content)}</p>
+                        {message.attachmentName && (
+                          <div className="mb-2 inline-flex max-w-full items-center gap-2 rounded-lg bg-white/20 px-2 py-1 text-xs">
+                            <span className="material-symbols-outlined text-[14px]">attach_file</span>
+                            <span className="truncate max-w-[220px]">{message.attachmentName}</span>
+                          </div>
+                        )}
+                        {message.content && (
+                          <p className="whitespace-pre-wrap font-['Inter'] text-sm">{parseMarkdownFormatting(message.content)}</p>
+                        )}
                       </div>
                       <div className="h-8 w-8 rounded-full bg-[#dbe1ff] flex-shrink-0" />
                     </div>
@@ -890,20 +899,20 @@ export default function App() {
     setPendingFilePreview(null)
   }
 
-  function commitPendingPreview(sessionId: string) {
-    if (!pendingFilePreview) {
+  function commitPreviewForSession(sessionId: string, preview: PendingFilePreview | null) {
+    if (!preview) {
       return
     }
 
     setCommittedPreviewsBySession((prev) => {
       const existing = prev[sessionId]
-      if (existing && existing.previewUrl !== pendingFilePreview.previewUrl) {
+      if (existing && existing.previewUrl !== preview.previewUrl) {
         revokePreview(existing)
       }
 
       return {
         ...prev,
-        [sessionId]: pendingFilePreview,
+        [sessionId]: preview,
       }
     })
   }
@@ -1158,7 +1167,10 @@ export default function App() {
     event.preventDefault()
 
     const trimmed = inputValue.trim()
-    if ((!trimmed && !selectedFile) || isLoading) {
+    const fileToSend = selectedFile
+    const previewToSend = pendingFilePreview
+
+    if ((!trimmed && !fileToSend) || isLoading) {
       return
     }
 
@@ -1171,45 +1183,44 @@ export default function App() {
     setErrorText(null)
 
     try {
-      const attachedFileName = selectedFile?.name ?? null
+      const attachedFileName = fileToSend?.name ?? null
       let attachedFileContent: string | null = null
-
-      if (selectedFile) {
-        // Сначала получаем содержательный контекст файла, потом фиксируем его в сессии.
-        const validation = await validateDocument(selectedFile)
-        attachedFileContent = validation.fullTextContext || null
-
-        await attachFileToChat(selectedFile, attachedFileContent ?? undefined)
-
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `assistant-validation-${Date.now()}`,
-            role: 'assistant',
-            content: validation.message,
-          },
-        ])
-
-        if (selectedSessionId) {
-          commitPendingPreview(selectedSessionId)
-        }
-
-        setSelectedFile(null)
-        setPendingFilePreview(null)
-
-        if (!trimmed) {
-          return
-        }
-      }
 
       const userMessage: ChatMessage = {
         id: `user-${Date.now()}`,
         role: 'user',
-        content: trimmed,
+        content: trimmed || '',
+        attachmentName: attachedFileName ?? undefined,
       }
 
       setMessages((prev) => [...prev, userMessage])
       setInputValue('')
+      setSelectedFile(null)
+      setPendingFilePreview(null)
+
+      if (fileToSend) {
+        // Сначала получаем содержательный контекст файла, потом фиксируем его в сессии.
+        const validation = await validateDocument(fileToSend)
+        attachedFileContent = validation.fullTextContext || null
+
+        await attachFileToChat(fileToSend, attachedFileContent ?? undefined)
+
+        if (selectedSessionId) {
+          commitPreviewForSession(selectedSessionId, previewToSend)
+        }
+
+        if (!trimmed) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `assistant-validation-${Date.now()}`,
+              role: 'assistant',
+              content: validation.message,
+            },
+          ])
+          return
+        }
+      }
 
       const response = await fetchWithTimeout('/api/chat', {
         method: 'POST',

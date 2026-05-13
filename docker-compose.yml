@@ -21,7 +21,7 @@ services:
     volumes:
       - ollama_models:/root/.ollama
     environment:
-      OLLAMA_CONTEXT_LENGTH: "512"
+      OLLAMA_CONTEXT_LENGTH: "4096"
     healthcheck:
       test: ["CMD-SHELL", "bash -lc 'cat < /dev/null > /dev/tcp/localhost/11434'"]
       interval: 15s
