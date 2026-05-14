@@ -177,9 +177,13 @@ public class ChatController : ControllerBase
         try
         {
             var sessionSnapshot = _chatSessionStore.GetOrCreate(sessionId);
+            var shouldUseDocumentContext =
+                request.UseAttachedDocumentContext || !string.IsNullOrWhiteSpace(request.AttachedFileContent);
+            var fullDocumentContext = shouldUseDocumentContext ? sessionSnapshot.AttachedDocumentContext : null;
+
             // Полный текст документа храним в сессии, а в prompt передаем управляемый фрагмент,
             // чтобы не переполнить контекст модели на очень больших документах.
-            var documentContextForPrompt = BuildDocumentContextForPrompt(request.Message, sessionSnapshot.AttachedDocumentContext);
+            var documentContextForPrompt = BuildDocumentContextForPrompt(request.Message, fullDocumentContext);
             var ragChunks = await _ragService.SearchAsync(request.Message, topK: 3, ct);
             var prompt = BuildAugmentedPrompt(
                 request.Message,
@@ -193,9 +197,10 @@ public class ChatController : ControllerBase
                 documentContextForPrompt.Length);
 
             _logger.LogDebug(
-                "Подготовка контекста документа для prompt завершена: sessionId={SessionId}, естьКонтекст={HasDocumentContext}",
+                "Подготовка контекста документа для prompt завершена: sessionId={SessionId}, использоватьКонтекст={ShouldUseDocumentContext}, естьКонтекст={HasDocumentContext}",
                 sessionId,
-                !string.IsNullOrWhiteSpace(sessionSnapshot.AttachedDocumentContext));
+                shouldUseDocumentContext,
+                !string.IsNullOrWhiteSpace(fullDocumentContext));
 
             var responseText = await _llmService.GenerateAsync(prompt, request.ConversationHistory, ct);
 
@@ -271,12 +276,42 @@ public class ChatController : ControllerBase
         string? attachedDocumentContext = null)
     {
         var behavior = """
-            Инструкции к ответу:
-            - Отвечай сразу по сути, без вступлений и без рассуждений о том, как ты отвечаешь.
-            - Не используй формулировки про \"релевантные источники\".
-            - Не вставляй в ответ маркеры вида (Источник 1), (Источник 2) и т.п.
-            - Не используй слово \"источник\" в тексте ответа.
-            - Если в приведенном контексте нет точного ответа, скажи: \"В базе знаний нет точного ответа по этому вопросу.\"
+            Ты — интеллектуальный ассистент, встроенный в систему электронного документооборота (СЭД) организации.
+
+            Организация, в которой ты работаешь:
+            - Psuti-Pharms — фармацевтическая компания.
+            - Деятельность: оптовые поставки фармацевтической продукции, логистика и хранение термолабильных препаратов.
+            - Структура: центральный офис и региональные филиалы.
+            - Пользователи: сотрудники компании (логистика, склад, офис, менеджмент).
+
+            Твоя задача:
+            Помогать пользователю разбираться в документах, процессах и информации из базы знаний организации.
+
+            Режим ответа:
+            - Отвечай как опытный внутренний консультант компании.
+            - Пиши понятно, живо и по делу.
+            - Можно объяснять и немного упрощать сложные вещи.
+            - Не используй сухой справочный стиль.
+            - Не упоминай, что используешь базу знаний, документы или RAG.
+            - Не перечисляй структуру документов (разделы, файлы, чанки).
+            - Не используй формулировки типа «в документе указано».
+            - Не упоминай слова «источник», «документ», «раздел», «файл», «база знаний».
+
+            Использование контекста:
+            - Используй предоставленный контекст как источник знаний и формируй из него единый связный ответ.
+            - Не пересказывай контекст.
+            - Не цитируй контекст дословно.
+            - Синтезируй информацию в понятное объяснение.
+            - Если данные из разных фрагментов, объединяй их в один логичный ответ.
+
+            Если данных недостаточно:
+            - Ответь строго: «В базе знаний нет точной информации по этому вопросу.»
+            - Без дополнительных пояснений.
+
+            Формат ответа:
+            - Сначала прямой ответ.
+            - Затем краткое пояснение (если нужно).
+            - Без лишних заголовков и формальностей.
             """;
 
         var attachedFileBlock = string.IsNullOrWhiteSpace(attachedFileName)

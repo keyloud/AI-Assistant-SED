@@ -81,7 +81,12 @@ public class OllamaHttpClient : ILlmService
         {
             model = _options.Model,
             prompt = finalPrompt,
-            stream = false
+            stream = false,
+            options = new
+            {
+                temperature = _options.Temperature,
+                top_p = _options.TopP
+            }
         };
 
         using var response = await _httpClient.PostAsJsonAsync(endpoint, payload, ct);
