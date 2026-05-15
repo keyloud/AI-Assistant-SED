@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useMemo, FormEvent } from 'react'
 import { renderAsync } from 'docx-preview'
 import { toPng } from 'html-to-image'
+import chatDetailsIcon from './assets/chatDetails-icon.png'
+import assistantIcon from './assets/icon-assistant.png'
 
 const navItems = [
   { id: 'documents', label: 'Все документы', icon: 'description', active: true },
@@ -524,9 +526,16 @@ function DocumentDetailsView({
   selectedFile,
   documentPreview,
   attachmentLimitReached,
+  useDocumentContext,
+  hasDocumentContext,
+  documentType,
+  classificationConfidence,
   onInputChange,
   onFileSelect,
   onSubmit,
+  onStop,
+  onEnableDocumentContext,
+  onDisableDocumentContext,
 }: {
   document: DocumentItem | null
   chatTitle: string
@@ -538,18 +547,41 @@ function DocumentDetailsView({
   selectedFile: File | null
   documentPreview: PendingFilePreview | null
   attachmentLimitReached: boolean
+  useDocumentContext: boolean
+  hasDocumentContext: boolean
+  documentType?: string
+  classificationConfidence?: number
   onInputChange: (value: string) => void
   onFileSelect: (file: File | null) => void
   onSubmit: (e: FormEvent<HTMLFormElement>) => void
+  onStop: () => void
+  onEnableDocumentContext: () => void
+  onDisableDocumentContext: () => void
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const formRef = useRef<HTMLFormElement | null>(null)
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
+  const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
 
   useEffect(() => {
     endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
 
+  useEffect(() => {
+    if (!hasDocumentContext) {
+      setIsContextMenuOpen(false)
+    }
+  }, [hasDocumentContext])
+
   const statusInfo = document ? getStatusBadge(document.status) : null
+  const confidenceLabel =
+    typeof classificationConfidence === 'number'
+      ? `${(Math.min(1, Math.max(0, classificationConfidence)) * 100).toFixed(1)}%`
+      : '-'
+  const handleEnableContext = () => {
+    onEnableDocumentContext()
+    setIsContextMenuOpen(false)
+  }
 
   return (
     <main className="flex min-w-0 flex-1 flex-col h-full overflow-hidden p-6 gap-6">
@@ -616,6 +648,14 @@ function DocumentDetailsView({
               <div className="flex flex-col gap-1">
                 <dt className="font-['Inter'] text-[0.75rem] text-[#64748b] uppercase tracking-wider">Название</dt>
                 <dd className="font-['Inter'] text-[0.875rem] font-medium break-all">{document ? document.name : 'Без документа'}</dd>
+              </div>
+              <div className="flex flex-col gap-1">
+                <dt className="font-['Inter'] text-[0.75rem] text-[#64748b] uppercase tracking-wider">Тип документа</dt>
+                <dd className="font-['Inter'] text-[0.875rem] font-medium">{documentType || '-'}</dd>
+              </div>
+              <div className="flex flex-col gap-1">
+                <dt className="font-['Inter'] text-[0.75rem] text-[#64748b] uppercase tracking-wider">Уверенность классификации</dt>
+                <dd className="font-['Inter'] text-[0.875rem] font-medium">{confidenceLabel}</dd>
               </div>
               <div className="flex flex-col gap-1">
                 <dt className="font-['Inter'] text-[0.75rem] text-[#64748b] uppercase tracking-wider">Статус</dt>
@@ -691,8 +731,8 @@ function DocumentDetailsView({
                 {messages.map((message) =>
                   message.role === 'assistant' ? (
                     <div key={message.id} className="flex items-start gap-4">
-                      <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#0053db] text-white flex-shrink-0">
-                        <span className="material-symbols-outlined text-base">auto_awesome</span>
+                      <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#f0f8ff] flex-shrink-0">
+                        <img src={chatDetailsIcon} alt="AI" className="h-6 w-6 object-contain" />
                       </div>
                       <article className="max-w-[92%] rounded-2xl rounded-tl-none border-l-4 border-[#0053db] bg-white p-5 shadow-sm">
                         <p className="whitespace-pre-wrap font-['Inter'] text-sm leading-relaxed text-[#1a1d22]">{parseMarkdownFormatting(message.content)}</p>
@@ -700,15 +740,17 @@ function DocumentDetailsView({
                           <div className="mt-4 rounded-xl border border-[#dbe1ff] bg-[#f8fbff] p-3">
                             <div className="mb-2 flex items-center gap-2 font-['Manrope'] text-xs font-bold uppercase tracking-wide text-[#0053db]">
                               <span className="material-symbols-outlined text-[16px]">travel_explore</span>
-                              Документы
+                              Источники RAG
                             </div>
                             <div className="space-y-2">
                               {message.ragSources.slice(0, 3).map((source, index) => (
                                 <div key={`${source.title}-${source.section}-${index}`} className="rounded-lg bg-white px-3 py-2 text-xs text-[#475569] shadow-sm">
-                                  <div className="font-semibold text-[#1a1d22]">{source.title || source.sourceFile || 'Документ базы знаний'}</div>
+                                  <div className="font-semibold text-[#1a1d22]">
+                                    {index + 1}. {source.title || source.sourceFile || 'Источник базы знаний'}
+                                  </div>
                                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
                                     {source.section && <span>Раздел: {source.section}</span>}
-                                    {source.sourceFile && <span className="truncate">Файл: {source.sourceFile}</span>}
+                                    <span>score: {source.score.toFixed(3)}</span>
                                   </div>
                                 </div>
                               ))}
@@ -737,8 +779,8 @@ function DocumentDetailsView({
 
                 {isLoading && (
                   <div className="flex items-start gap-4">
-                    <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#0053db] text-white">
-                      <span className="material-symbols-outlined text-base">auto_awesome</span>
+                    <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-[#f0f8ff]">
+                      <img src={chatDetailsIcon} alt="AI" className="h-6 w-6 object-contain" />
                     </div>
                     <article className="max-w-[92%] rounded-2xl rounded-tl-none border-l-4 border-[#0053db] bg-white p-5 shadow-sm">
                       <p className="font-['Inter'] text-sm text-[#64748b]">Ассистент формирует ответ...</p>
@@ -759,7 +801,11 @@ function DocumentDetailsView({
 
           {/* Input Area */}
           <div className="p-4 bg-white border-t border-[#dce3ee] shrink-0">
-            <form onSubmit={onSubmit} className="flex items-end gap-2 rounded-xl border border-[#dce3ee] bg-white p-2 shadow-sm focus-within:border-[#0053db] focus-within:ring-2 focus-within:ring-[#0053db]/20 transition-all">
+            <form
+              ref={formRef}
+              onSubmit={onSubmit}
+              className="flex items-end gap-2 rounded-xl border border-[#dce3ee] bg-white p-2 shadow-sm focus-within:border-[#0053db] focus-within:ring-2 focus-within:ring-[#0053db]/20 transition-all"
+            >
               <input
                 ref={fileInputRef}
                 type="file"
@@ -779,6 +825,32 @@ function DocumentDetailsView({
               >
                 <span className="material-symbols-outlined">attach_file</span>
               </button>
+              {hasDocumentContext && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="rounded-lg p-2 text-[#64748b] hover:text-[#0053db] hover:bg-[#f3f6fa] transition-colors"
+                    title="Use document context"
+                    onClick={() => setIsContextMenuOpen((prev) => !prev)}
+                    disabled={isLoading}
+                    aria-expanded={isContextMenuOpen}
+                  >
+                    <span className="material-symbols-outlined">add</span>
+                  </button>
+                  {isContextMenuOpen && (
+                    <div className="absolute left-0 top-full mt-2 w-64 rounded-lg border border-[#dce3ee] bg-white p-2 shadow-lg z-10">
+                      <button
+                        type="button"
+                        onClick={handleEnableContext}
+                        disabled={isLoading || useDocumentContext}
+                        className="w-full rounded-md px-3 py-2 text-left text-sm text-[#1a1d22] hover:bg-[#f3f6fa] disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        Use document context
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
               {selectedFile && (
                 <div className="flex max-w-[240px] items-center gap-2 rounded-xl border border-[#dce3ee] bg-[#f8fbff] px-3 py-2 text-xs text-[#1a1d22]">
                   <span className="truncate font-medium">{selectedFile.name}</span>
@@ -786,7 +858,22 @@ function DocumentDetailsView({
                     type="button"
                     onClick={() => onFileSelect(null)}
                     className="rounded-full p-1 text-[#64748b] hover:bg-white hover:text-[#93000a]"
-                    aria-label="Убрать прикрепленный файл"
+                    aria-label="Remove attached file"
+                    disabled={isLoading}
+                  >
+                    <span className="material-symbols-outlined text-[16px]">close</span>
+                  </button>
+                </div>
+              )}
+              {useDocumentContext && (
+                <div className="flex max-w-[260px] items-center gap-2 rounded-xl border border-[#dbe1ff] bg-[#f8fbff] px-3 py-2 text-xs text-[#1a1d22]">
+                  <span className="material-symbols-outlined text-[14px] text-[#0053db]">description</span>
+                  <span className="truncate font-medium">Use document context</span>
+                  <button
+                    type="button"
+                    onClick={onDisableDocumentContext}
+                    className="rounded-full p-1 text-[#64748b] hover:bg-white hover:text-[#93000a]"
+                    aria-label="Disable document context"
                     disabled={isLoading}
                   >
                     <span className="material-symbols-outlined text-[16px]">close</span>
@@ -796,21 +883,30 @@ function DocumentDetailsView({
               <textarea
                 value={inputValue}
                 onChange={(e) => onInputChange(e.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault()
+                    if (!isLoading) {
+                      formRef.current?.requestSubmit()
+                    }
+                  }
+                }}
                 placeholder="Спросите что-нибудь о документе..."
                 className="flex-1 bg-transparent border-none focus:ring-0 resize-none text-[0.875rem] py-2.5 px-3 max-h-32 text-[#1a1d22] placeholder:text-[#64748b]/50 focus:outline-none"
                 rows={1}
                 disabled={isLoading}
               />
               <div className="flex items-center gap-2 self-end shrink-0 p-1">
-                <button
-                  type="button"
-                  className="p-2 text-[#64748b] hover:text-[#0053db] hover:bg-[#f3f6fa] rounded-lg transition-colors"
-                  disabled={isLoading}
-                >
-                  <span className="material-symbols-outlined text-[20px]" data-icon="mic">
-                    mic
-                  </span>
-                </button>
+                {isLoading && (
+                  <button
+                    type="button"
+                    onClick={onStop}
+                    className="p-2 text-[#b22222] hover:text-[#93000a] hover:bg-[#fff1f1] rounded-lg transition-colors"
+                    title="Остановить генерацию"
+                  >
+                    <span className="material-symbols-outlined text-[20px]">stop</span>
+                  </button>
+                )}
                 <button
                   type="submit"
                   className="bg-[#0053db] text-white p-2 rounded-lg hover:opacity-90 transition-opacity shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
@@ -842,6 +938,10 @@ export default function App() {
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [errorText, setErrorText] = useState<string | null>(null)
+  const [useDocumentContext, setUseDocumentContext] = useState(false)
+  const [documentMetaBySession, setDocumentMetaBySession] = useState<
+    Record<string, { documentType?: string; classificationConfidence?: number }>
+  >({})
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [pendingFilePreview, setPendingFilePreview] = useState<PendingFilePreview | null>(null)
   const [committedPreviewsBySession, setCommittedPreviewsBySession] = useState<Record<string, PendingFilePreview>>({})
@@ -854,12 +954,16 @@ export default function App() {
 
   const activeChat = chats.find((chat) => chat.id === activeSessionId) ?? selectedChat
   const attachmentLimitReached = (activeChat?.documents.length ?? 0) >= 1
+  const hasDocumentContext = (activeChat?.documents.length ?? 0) > 0
 
   const selectedSessionId = activeSessionId
   const activeCommittedPreview = selectedSessionId ? committedPreviewsBySession[selectedSessionId] ?? null : null
   const activeDocumentPreview = pendingFilePreview ?? activeCommittedPreview
+  const activeDocumentMeta = selectedSessionId ? documentMetaBySession[selectedSessionId] ?? null : null
 
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
+  const chatAbortController = useRef<AbortController | null>(null)
+  const chatUserAborted = useRef<boolean>(false)
   const conversationHistory = useMemo(
     () =>
       messages.map((m) => ({
@@ -872,6 +976,10 @@ export default function App() {
   useEffect(() => {
     endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
+
+  useEffect(() => {
+    setUseDocumentContext(false)
+  }, [activeSessionId])
 
   useEffect(() => {
     return () => {
@@ -899,7 +1007,7 @@ export default function App() {
     setPendingFilePreview(null)
   }
 
-  function commitPreviewForSession(sessionId: string, preview: PendingFilePreview | null) {
+  function commitPendingPreview(sessionId: string, preview: PendingFilePreview | null) {
     if (!preview) {
       return
     }
@@ -950,7 +1058,9 @@ export default function App() {
     }
   }, [])
 
-  async function validateDocument(file: File): Promise<{ message: string; fullTextContext: string }> {
+  async function validateDocument(
+    file: File,
+  ): Promise<{ message: string; fullTextContext: string; documentType?: string; classificationConfidence?: number }> {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('summaryOnly', 'true')
@@ -1001,6 +1111,8 @@ export default function App() {
     return {
       message: messageParts.join('\n\n'),
       fullTextContext,
+      documentType: payload.documentType,
+      classificationConfidence: payload.classificationConfidence,
     }
   }
 
@@ -1169,7 +1281,8 @@ export default function App() {
     const trimmed = inputValue.trim()
     const fileToSend = selectedFile
     const previewToSend = pendingFilePreview
-
+    const willSendWithNewFile = Boolean(fileToSend) && Boolean(trimmed)
+    const shouldUseDocumentContext = (useDocumentContext && hasDocumentContext) || willSendWithNewFile
     if ((!trimmed && !fileToSend) || isLoading) {
       return
     }
@@ -1186,17 +1299,22 @@ export default function App() {
       const attachedFileName = fileToSend?.name ?? null
       let attachedFileContent: string | null = null
 
-      const userMessage: ChatMessage = {
-        id: `user-${Date.now()}`,
-        role: 'user',
-        content: trimmed || '',
-        attachmentName: attachedFileName ?? undefined,
+      if (trimmed || attachedFileName) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `user-${Date.now()}`,
+            role: 'user',
+            content: trimmed,
+            attachmentName: attachedFileName ?? undefined,
+          },
+        ])
       }
 
-      setMessages((prev) => [...prev, userMessage])
       setInputValue('')
-      setSelectedFile(null)
-      setPendingFilePreview(null)
+      if (fileToSend) {
+        clearPendingAttachment()
+      }
 
       if (fileToSend) {
         // Сначала получаем содержательный контекст файла, потом фиксируем его в сессии.
@@ -1205,24 +1323,41 @@ export default function App() {
 
         await attachFileToChat(fileToSend, attachedFileContent ?? undefined)
 
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-validation-${Date.now()}`,
+            role: 'assistant',
+            content: validation.message,
+          },
+        ])
+
         if (selectedSessionId) {
-          commitPreviewForSession(selectedSessionId, previewToSend)
+          commitPendingPreview(selectedSessionId, previewToSend)
+          setDocumentMetaBySession((prev) => ({
+            ...prev,
+            [selectedSessionId]: {
+              documentType: validation.documentType,
+              classificationConfidence: validation.classificationConfidence,
+            },
+          }))
+        }
+
+        if (willSendWithNewFile) {
+          setUseDocumentContext(true)
         }
 
         if (!trimmed) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-validation-${Date.now()}`,
-              role: 'assistant',
-              content: validation.message,
-            },
-          ])
           return
         }
       }
 
-      const response = await fetchWithTimeout('/api/chat', {
+      // Создаем контроллер для возможности отмены запроса пользователем
+      const controller = new AbortController()
+      chatAbortController.current = controller
+      chatUserAborted.current = false
+
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
@@ -1232,9 +1367,11 @@ export default function App() {
           message: trimmed,
           attachedFileName,
           attachedFileContent,
+          useAttachedDocumentContext: shouldUseDocumentContext,
           conversationHistory,
         }),
-      }, 120000)
+        signal: controller.signal,
+      })
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
@@ -1278,24 +1415,66 @@ export default function App() {
       }
     } catch (error) {
       const isAbort = error instanceof DOMException && error.name === 'AbortError'
-      setErrorText(
-        isAbort
-          ? 'Запрос превысил лимит ожидания. Попробуйте снова или уменьшите размер документа.'
-          : 'Не удалось получить ответ от backend. Проверьте доступность /api/chat.',
-      )
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `assistant-error-${Date.now()}`,
-          role: 'assistant',
-          content: isAbort
-            ? 'Сервис не успел обработать запрос за отведенное время. Попробуйте еще раз.'
-            : 'Сервис временно недоступен. Попробуйте отправить запрос еще раз.',
-        },
-      ])
+
+      if (isAbort && chatUserAborted.current) {
+        // Мягкое сообщение при ручной остановке — без красной ошибки
+        setErrorText(null)
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-abort-${Date.now()}`,
+            role: 'assistant',
+            content: 'Генерация ответа прервана пользователем.',
+          },
+        ])
+      } else {
+        setErrorText(
+          isAbort
+            ? 'Запрос прерван. Попробуйте снова или уменьшите размер документа.'
+            : 'Не удалось получить ответ от backend. Проверьте доступность /api/chat.',
+        )
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `assistant-error-${Date.now()}`,
+            role: 'assistant',
+            content: isAbort
+              ? 'Сервис не успел обработать запрос за отведенное время. Попробуйте еще раз.'
+              : 'Сервис временно недоступен. Попробуйте отправить запрос еще раз.',
+          },
+        ])
+      }
     } finally {
       setIsLoading(false)
+      // Очистим контроллер и флаг
+      if (chatAbortController.current) {
+        chatAbortController.current = null
+      }
+      chatUserAborted.current = false
     }
+  }
+
+  function handleStopGeneration() {
+    if (chatAbortController.current) {
+      chatUserAborted.current = true
+      try {
+        chatAbortController.current.abort()
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  function handleEnableDocumentContext() {
+    if (!hasDocumentContext) {
+      return
+    }
+
+    setUseDocumentContext(true)
+  }
+
+  function handleDisableDocumentContext() {
+    setUseDocumentContext(false)
   }
 
   async function handleDeleteChat(chatId: string) {
@@ -1325,6 +1504,11 @@ export default function App() {
         setInputValue('')
         clearPendingAttachment()
       }
+
+      setDocumentMetaBySession((prev) => {
+        const { [chatId]: removed, ...rest } = prev
+        return rest
+      })
     } catch {
       setErrorText('Не удалось удалить чат. Попробуйте снова.')
     }
@@ -1445,9 +1629,12 @@ export default function App() {
     <div className="h-screen overflow-hidden bg-[#f3f6fa] text-[#1a1d22]">
       <div className="flex h-full">
         <aside className="hidden w-72 shrink-0 flex-col border-r border-[#dce3ee] bg-[#eef3fa] px-4 py-5 lg:flex">
-          <div className="mb-8 px-2">
-            <h1 className="font-['Manrope'] text-xl font-extrabold tracking-tight text-[#111827]">AI-Assistant</h1>
-            <p className="font-['Inter'] text-xs text-[#64748b]">Готов к анализу</p>
+          <div className="mb-8 px-2 flex items-center gap-3">
+            <img src={assistantIcon} alt="AI Assistant" className="h-10 w-10 object-contain" />
+            <div>
+              <h1 className="font-['Manrope'] text-xl font-extrabold tracking-tight text-[#111827]">AI-Assistant</h1>
+              <p className="font-['Inter'] text-xs text-[#64748b]">Интеллектуальный помощник</p>
+            </div>
           </div>
 
           <nav className="space-y-1">
@@ -1525,9 +1712,16 @@ export default function App() {
                 selectedFile={selectedFile}
                 documentPreview={activeDocumentPreview}
                 attachmentLimitReached={attachmentLimitReached}
+                useDocumentContext={useDocumentContext}
+                hasDocumentContext={hasDocumentContext}
+                documentType={activeDocumentMeta?.documentType}
+                classificationConfidence={activeDocumentMeta?.classificationConfidence}
                 onInputChange={setInputValue}
                 onFileSelect={handleFileSelect}
                 onSubmit={handleSubmit}
+                onStop={handleStopGeneration}
+                onEnableDocumentContext={handleEnableDocumentContext}
+                onDisableDocumentContext={handleDisableDocumentContext}
               />
             ) : (
               <>

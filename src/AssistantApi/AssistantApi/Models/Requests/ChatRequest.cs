@@ -8,5 +8,6 @@ public class ChatRequest
     public string Message { get; set; } = string.Empty;
     public string? AttachedFileName { get; set; }
     public string? AttachedFileContent { get; set; }
+    public bool UseAttachedDocumentContext { get; set; }
     public List<ConversationMessage> ConversationHistory { get; set; } = new();
 }
