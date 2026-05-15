@@ -26,6 +26,9 @@ public class DocumentValidationService : IDocumentValidationService
         _logger = logger;
     }
 
+    /// <summary>
+    /// Конструктор без LLM-сервиса; используется когда ML-функции отключены.
+    /// </summary>
     public DocumentValidationService(
         IOptions<DocumentValidationOptions> options,
         ILogger<DocumentValidationService> logger)
@@ -35,6 +38,11 @@ public class DocumentValidationService : IDocumentValidationService
         _logger = logger;
     }
 
+    /// <summary>
+    /// Основной метод валидации документа: извлекает текст, при необходимости запускает OCR,
+    /// выполняет ML-классификацию, подбирает шаблон и формирует замечания, рекомендации и summary.
+    /// </summary>
+    /// <returns>Объект <see cref="DocumentValidationResponse"/> с результатами проверки.</returns>
     public async Task<DocumentValidationResponse> ValidateAsync(
         Stream fileStream,
         string fileName,
@@ -111,8 +119,8 @@ public class DocumentValidationService : IDocumentValidationService
             : BuildValidationRemarks(template, extractedText, extension, ocrUsed);
         _logger.LogDebug($"Замечания валидации сформированы для {fileName}: requestId={requestId}, количество={remarks.Count}");
 
-        var recommendations = BuildRecommendations(remarks, template?.DisplayName, ocrUsed, mlResult);
-        var summary = BuildSummary(extractedText, template?.DisplayName, remarks, mlResult, summaryOnly);
+        var summary = await GenerateSummaryAsync(extractedText, template?.DisplayName, summaryOnly, ct);
+        var recommendations = BuildRecommendations(remarks, template?.DisplayName, ocrUsed);
 
         if (template is null)
         {
@@ -152,6 +160,9 @@ public class DocumentValidationService : IDocumentValidationService
         };
     }
 
+    /// <summary>
+    /// Формирует список замечаний на основе выбранного шаблона и извлечённого текста.
+    /// </summary>
     private List<string> BuildValidationRemarks(DocumentTemplateRule? template, string extractedText, string extension, bool ocrUsed)
     {
         var remarks = new List<string>();
@@ -188,11 +199,13 @@ public class DocumentValidationService : IDocumentValidationService
         return remarks;
     }
 
+    /// <summary>
+    /// Формирует рекомендации на основе замечаний, типа документа и результата ML.
+    /// </summary>
     private List<string> BuildRecommendations(
         List<string> remarks,
         string? documentType,
-        bool ocrUsed,
-        MlClassificationResult? mlResult)
+        bool ocrUsed)
     {
         var recommendations = new List<string>();
 
@@ -211,11 +224,6 @@ public class DocumentValidationService : IDocumentValidationService
             recommendations.Add("Дополните обязательные реквизиты и повторите проверку.");
         }
 
-        if (mlResult?.Recommendations is { Count: > 0 })
-        {
-            recommendations.AddRange(mlResult.Recommendations);
-        }
-
         return recommendations
             .Where(r => !string.IsNullOrWhiteSpace(r))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -223,33 +231,99 @@ public class DocumentValidationService : IDocumentValidationService
             .ToList();
     }
 
-    private string BuildSummary(
+    /// <summary>
+    /// Генерирует полноценную summary отдельно от классификации документа.
+    /// При недоступности LLM возвращает понятный fallback на основе текста документа.
+    /// </summary>
+    private async Task<string> GenerateSummaryAsync(
         string extractedText,
         string? documentType,
-        List<string> remarks,
-        MlClassificationResult? mlResult,
-        bool summaryOnly)
+        bool summaryOnly,
+        CancellationToken ct)
     {
-        if (_options.Ml.EnableSummary && !string.IsNullOrWhiteSpace(mlResult?.Summary))
+        if (string.IsNullOrWhiteSpace(extractedText))
         {
-            return mlResult.Summary;
-        }
-
-        var typeText = string.IsNullOrWhiteSpace(documentType) ? "тип документа не определен" : $"тип: {documentType}";
-        var snippet = extractedText.Length > 180 ? extractedText[..180] + "..." : extractedText;
-
-        if (string.IsNullOrWhiteSpace(snippet))
-        {
+            _logger.LogInformation($"Summary source=empty_text, documentType={documentType ?? "<не задан>"}, summaryOnly={summaryOnly}");
             return summaryOnly
-                ? $"Анализ завершен, {typeText}."
-                : $"Проверка завершена, {typeText}, {(remarks.Count == 0 ? "замечаний не найдено" : $"замечаний: {remarks.Count}")}.";
+                ? "Анализ завершен, текст документа не удалось извлечь."
+                : "Проверка завершена, текст документа не удалось извлечь.";
         }
+
+        if (!_options.Ml.Enabled || _llmService is null || !_options.Ml.EnableSummary)
+        {
+            _logger.LogInformation($"Summary source=fallback_no_llm, documentType={documentType ?? "<не задан>"}, textLength={extractedText.Length}, summaryOnly={summaryOnly}");
+            return BuildFallbackSummary(extractedText, documentType, summaryOnly);
+        }
+
+        var maxChars = _options.Ml.MaxInputChars;
+        var sample = extractedText.Length <= maxChars ? extractedText : extractedText[..maxChars];
+        var typeClause = string.IsNullOrWhiteSpace(documentType) ? "тип документа не определен" : $"тип документа: {documentType}";
+
+        var prompt = $@"Ты — корпоративный ассистент фармацевтической компании Psuti-Pharms.
+Твоя задача — подготовить понятную, полную и полезную выжимку документа для сотрудника.
+
+Не классифицируй документ и не перечисляй формальные признаки. Сфокусируйся на смысле и последствиях.
+Если в тексте есть сроки, ограничения, обязанности, риски или изменения, обязательно укажи их.
+Пиши естественно, без канцелярита и без списка цитат из текста.
+
+Контекст: {typeClause}
+Формат ответа: один связный абзац без markdown и без JSON.
+
+Текст документа:
+{sample}";
+
+        try
+        {
+            _logger.LogInformation($"Summary source=llm, documentType={documentType ?? "<не задан>"}, sampleLength={sample.Length}, summaryOnly={summaryOnly}");
+            var raw = await _llmService.GenerateAsync(
+                prompt,
+                history: null,
+                temperature: _options.Ml.SummaryTemperature,
+                topP: _options.Ml.SummaryTopP,
+                ct: ct);
+
+            var summary = NormalizeText(raw);
+            if (string.IsNullOrWhiteSpace(summary))
+            {
+                return LogFallbackSummary(extractedText, documentType, summaryOnly, "llm_empty_output");
+            }
+
+            return summary;
+        }
+        catch (Exception ex)
+        {
+            var safeDocumentType = string.IsNullOrWhiteSpace(documentType) ? "<неизвестный тип>" : documentType;
+            _logger.LogWarning(ex, $"Генерация summary завершилась ошибкой для документа {safeDocumentType}");
+            return LogFallbackSummary(extractedText, documentType, summaryOnly, "llm_exception");
+        }
+    }
+
+    /// <summary>
+    /// Логирует fallback-источник summary и возвращает запасной текст.
+    /// </summary>
+    private string LogFallbackSummary(string extractedText, string? documentType, bool summaryOnly, string reason)
+    {
+        _logger.LogInformation($"Summary source=fallback_{reason}, documentType={documentType ?? "<не задан>"}, textLength={extractedText.Length}, summaryOnly={summaryOnly}");
+        return BuildFallbackSummary(extractedText, documentType, summaryOnly);
+    }
+
+    /// <summary>
+    /// Формирует запасную summary без LLM, используя начало текста и контекст типа документа.
+    /// </summary>
+    private static string BuildFallbackSummary(string extractedText, string? documentType, bool summaryOnly)
+    {
+        var typeText = string.IsNullOrWhiteSpace(documentType) ? "тип документа не определен" : $"тип: {documentType}";
+        var snippet = extractedText.Length > 500 ? extractedText[..500] + "..." : extractedText;
 
         return summaryOnly
             ? $"Анализ завершен, {typeText}. Кратко: {snippet}"
-            : $"Проверка завершена, {typeText}, {(remarks.Count == 0 ? "замечаний не найдено" : $"замечаний: {remarks.Count}")}. Кратко: {snippet}";
+            : $"Проверка завершена, {typeText}. Кратко: {snippet}";
     }
 
+    /// <summary>
+    /// Пытается извлечь текст из PDF с помощью внешней OCR-команды.
+    /// Возвращает текст или null при ошибке/таймауте.
+    /// </summary>
     private async Task<string?> TryExtractPdfTextWithOcrAsync(byte[] fileBytes, CancellationToken ct)
     {
         var inputPath = Path.Combine(Path.GetTempPath(), $"docval-in-{Guid.NewGuid():N}.pdf");
@@ -355,6 +429,10 @@ public class DocumentValidationService : IDocumentValidationService
         }
     }
 
+    /// <summary>
+    /// Выполняет ML-классификацию и суммаризацию документа через подключённый LLM-сервис.
+    /// Возвращает результат классификации или null при ошибке/отсутствии сервиса.
+    /// </summary>
     private async Task<MlClassificationResult?> TryClassifyWithMlAsync(
         string fileName,
         string extractedText,
@@ -412,29 +490,15 @@ public class DocumentValidationService : IDocumentValidationService
         }
 
         var prompt = $@"Ты — интеллектуальный ассистент системы электронного документооборота фармацевтической компании Psuti-Pharms.
-Твоя задача:
-1) Определить тип документа
-2) Сформировать понятную и полезную выжимку документа
-3) Дать рекомендации при необходимости
+Твоя задача — определить только тип документа.
 
 Верни строго JSON без пояснений.
 Разрешенные documentType: {string.Join(", ", allowedTypes)}.
 Формат ответа:
 {{
     ""documentType"": ""одно из разрешенных значений"",
-    ""confidence"": 0.0,
-    ""summary"": ""понятная выжимка документа для сотрудника компании"",
-    ""recommendations"": [""совет 1"", ""совет 2""]
+    ""confidence"": 0.0
 }}
-
-Требования к summary:
-- Пиши простым и понятным языком
-- Не используй канцеляризмы
-- Объясняй смысл документа, а не пересказывай его
-- Указывай важные изменения, сроки, ограничения и последствия
-- Пиши как внутренний корпоративный ассистент
-- Summary должен читаться естественно и не быть сухим
-- Допустимо 3-5 предложений
 
 Имя файла: {fileName}
 Текст документа:
@@ -466,22 +530,6 @@ public class DocumentValidationService : IDocumentValidationService
                 ? confidenceNode.GetSingle()
                 : 0f;
 
-            var summary = root.TryGetProperty("summary", out var summaryNode)
-                ? summaryNode.GetString()
-                : null;
-
-            var recommendations = new List<string>();
-            if (root.TryGetProperty("recommendations", out var recNode) && recNode.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var item in recNode.EnumerateArray())
-                {
-                    if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
-                    {
-                        recommendations.Add(item.GetString()!);
-                    }
-                }
-            }
-
             if (string.IsNullOrWhiteSpace(documentType))
             {
                 return null;
@@ -489,9 +537,7 @@ public class DocumentValidationService : IDocumentValidationService
 
             return new MlClassificationResult(
                 documentType,
-                Math.Clamp(confidence, 0f, 1f),
-                summary,
-                recommendations);
+                Math.Clamp(confidence, 0f, 1f));
         }
         catch (Exception ex)
         {
@@ -500,6 +546,10 @@ public class DocumentValidationService : IDocumentValidationService
         }
     }
 
+    /// <summary>
+    /// Извлекает первый JSON-объект из строки, возвращая подстроку от первого '{' до последнего '}'.
+    /// Возвращает null, если JSON не найден.
+    /// </summary>
     private static string? ExtractJsonObject(string raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
@@ -517,6 +567,9 @@ public class DocumentValidationService : IDocumentValidationService
         return raw[start..(end + 1)];
     }
 
+    /// <summary>
+    /// Пытается удалить файл по пути, игнорируя возможные ошибки (cleanup helper).
+    /// </summary>
     private static void TryDelete(string path)
     {
         try
@@ -532,6 +585,10 @@ public class DocumentValidationService : IDocumentValidationService
         }
     }
 
+    /// <summary>
+    /// Пытается найти подходящий шаблон документа по подсказке, имени файла и содержимому.
+    /// Возвращает найденный шаблон или null.
+    /// </summary>
     private DocumentTemplateRule? ResolveTemplate(string? hint, string fileName, string text)
     {
         var templates = _options.Templates
@@ -568,6 +625,9 @@ public class DocumentValidationService : IDocumentValidationService
         return bestScore > 0 ? bestMatch : null;
     }
 
+    /// <summary>
+    /// Извлекает текст из DOCX (чтение word/document.xml внутри ZIP-архива).
+    /// </summary>
     private async Task<string> ExtractDocxTextAsync(Stream stream, CancellationToken ct)
     {
         try
@@ -596,6 +656,9 @@ public class DocumentValidationService : IDocumentValidationService
         }
     }
 
+    /// <summary>
+    /// Извлекает текст из PDF: сначала пытается `pdftotext`, в противном случае применяет низкоуровневый regex-фоллбек.
+    /// </summary>
     private async Task<string> ExtractPdfTextAsync(Stream stream, CancellationToken ct)
     {
         try
@@ -654,6 +717,9 @@ public class DocumentValidationService : IDocumentValidationService
         }
     }
 
+    /// <summary>
+    /// Вызывает внешнюю утилиту `pdftotext` для извлечения текста из PDF и возвращает результат.
+    /// </summary>
     private async Task<string?> TryExtractPdfTextWithPdftotextAsync(byte[] fileBytes, CancellationToken ct)
     {
         var inputPath = Path.Combine(Path.GetTempPath(), $"docval-pdf-{Guid.NewGuid():N}.pdf");
@@ -726,6 +792,9 @@ public class DocumentValidationService : IDocumentValidationService
         }
     }
 
+    /// <summary>
+    /// Убирает escape-последовательности PDF (например \n, \t, \(, \) и т.п.).
+    /// </summary>
     private static string UnescapePdfText(string value)
     {
         return value
@@ -737,6 +806,9 @@ public class DocumentValidationService : IDocumentValidationService
             .Replace("\\\\", "\\", StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Нормализует текст: схлопывает множественные пробелы и обрезает строки.
+    /// </summary>
     private static string NormalizeText(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -747,9 +819,10 @@ public class DocumentValidationService : IDocumentValidationService
         return Regex.Replace(value, @"\s+", " ").Trim();
     }
 
+    /// <summary>
+    /// DTO результата ML-классификации: тип документа, уверенность, summary и рекомендации.
+    /// </summary>
     private sealed record MlClassificationResult(
         string DocumentType,
-        float Confidence,
-        string? Summary,
-        List<string> Recommendations);
+        float Confidence);
 }

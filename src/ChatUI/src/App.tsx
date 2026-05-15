@@ -1091,7 +1091,7 @@ export default function App() {
       messageParts.push(`Тип документа: ${payload.documentType}.`)
     }
     if (payload.summary) {
-      messageParts.push(`Выжимка: ${payload.summary}`)
+      messageParts.push(`${payload.summary}`)
     }
     if (payload.ocrUsed) {
       messageParts.push('Для извлечения текста был применен OCR.')
@@ -1116,7 +1116,7 @@ export default function App() {
     }
   }
 
-  async function attachFileToChat(file: File, contextSummary?: string) {
+  async function attachFileToChat(file: File, contextSummary?: string, validationSummary?: string) {
     if (!selectedSessionId) {
       throw new Error('Сначала создайте или откройте чат.')
     }
@@ -1142,6 +1142,7 @@ export default function App() {
         size: newDoc.size,
         uploadedBy: newDoc.uploadedBy,
         contextSummary,
+        validationSummary,
       }),
     })
 
@@ -1157,6 +1158,7 @@ export default function App() {
       sessionId: mapped.id,
       fileName: file.name,
       contextLength: contextSummary?.length ?? 0,
+      validationSummaryLength: validationSummary?.length ?? 0,
     })
 
     setChats((prev) => [mapped, ...prev.filter((chat) => chat.id !== mapped.id)])
@@ -1321,7 +1323,7 @@ export default function App() {
         const validation = await validateDocument(fileToSend)
         attachedFileContent = validation.fullTextContext || null
 
-        await attachFileToChat(fileToSend, attachedFileContent ?? undefined)
+        await attachFileToChat(fileToSend, attachedFileContent ?? undefined, validation.message)
 
         setMessages((prev) => [
           ...prev,

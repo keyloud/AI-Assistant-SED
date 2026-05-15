@@ -113,6 +113,23 @@ public class ChatController : ControllerBase
                 session.AttachedDocumentContext = request.ContextSummary;
             }
 
+            session.Messages.Add(new ConversationMessage
+            {
+                Role = "user",
+                Content = $"Прикреплен документ: {request.Name}",
+                Timestamp = DateTime.UtcNow
+            });
+
+            if (!string.IsNullOrWhiteSpace(request.ValidationSummary))
+            {
+                session.Messages.Add(new ConversationMessage
+                {
+                    Role = "assistant",
+                    Content = request.ValidationSummary,
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+
             session.UpdatedAtUtc = DateTime.UtcNow;
         });
 
