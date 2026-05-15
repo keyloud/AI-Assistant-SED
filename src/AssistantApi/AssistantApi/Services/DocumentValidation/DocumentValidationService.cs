@@ -45,16 +45,11 @@ public class DocumentValidationService : IDocumentValidationService
         var sw = Stopwatch.StartNew();
         var requestId = Guid.NewGuid().ToString("N")[..8];
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
-        _logger.LogDebug(
-            "Пайплайн валидации запущен: requestId={RequestId}, файл={FileName}, расширение={Extension}, подсказка типа={DocumentTypeHint}",
-            requestId,
-            fileName,
-            extension,
-            documentTypeHint ?? "<нет>");
+        _logger.LogDebug($"Пайплайн валидации запущен: requestId={requestId}, файл={fileName}, расширение={extension}, подсказка типа={documentTypeHint ?? "<нет>"}");
 
         if (extension is not ".docx" and not ".pdf")
         {
-            _logger.LogWarning("Неподдерживаемый формат файла {FileName}: {Extension}", fileName, extension);
+            _logger.LogWarning($"Неподдерживаемый формат файла {fileName}: {extension}");
             return new DocumentValidationResponse
             {
                 Status = "bad_request",
@@ -67,30 +62,17 @@ public class DocumentValidationService : IDocumentValidationService
         await fileStream.CopyToAsync(sourceBuffer, ct);
         var fileBytes = sourceBuffer.ToArray();
 
-        _logger.LogInformation(
-            "[Шаг 1/5] Получен файл для анализа: requestId={RequestId}, файл={FileName}, размер={SizeBytes} байт",
-            requestId,
-            fileName,
-            fileBytes.Length);
+        _logger.LogInformation($"[Шаг 1/5] Получен файл для анализа: requestId={requestId}, файл={fileName}, размер={fileBytes.Length} байт");
 
-        _logger.LogInformation(
-            "[Шаг 2/5] Запущено извлечение текста: requestId={RequestId}, файл={FileName}",
-            requestId,
-            fileName);
+        _logger.LogInformation($"[Шаг 2/5] Запущено извлечение текста: requestId={requestId}, файл={fileName}");
         var extractedText = extension == ".docx"
             ? await ExtractDocxTextAsync(new MemoryStream(fileBytes), ct)
             : await ExtractPdfTextAsync(new MemoryStream(fileBytes), ct);
 
         var ocrUsed = false;
-        if (extension == ".pdf"
-            && extractedText.Length < _options.Ocr.MinExtractedTextLength
-            && _options.Ocr.Enabled)
+        if (extension == ".pdf" && extractedText.Length < _options.Ocr.MinExtractedTextLength && _options.Ocr.Enabled)
         {
-            _logger.LogInformation(
-                "[Шаг 2.1/5] Запущен OCR fallback: requestId={RequestId}, файл={FileName}, текущая длина текста={ExtractedTextLength}",
-                requestId,
-                fileName,
-                extractedText.Length);
+            _logger.LogInformation($"[Шаг 2.1/5] Запущен OCR fallback: requestId={requestId}, файл={fileName}, текущая длина текста={extractedText.Length}");
 
             var ocrText = await TryExtractPdfTextWithOcrAsync(fileBytes, ct);
             if (!string.IsNullOrWhiteSpace(ocrText) && ocrText.Length > extractedText.Length)
@@ -100,29 +82,14 @@ public class DocumentValidationService : IDocumentValidationService
             }
         }
 
-        _logger.LogDebug(
-            "Извлечение текста завершено для {FileName}: requestId={RequestId}, длина извлеченного текста={ExtractedTextLength}, использован OCR={OcrUsed}",
-            fileName,
-            requestId,
-            extractedText.Length,
-            ocrUsed);
+        _logger.LogDebug($"Извлечение текста завершено для {fileName}: requestId={requestId}, длина извлеченного текста={extractedText.Length}, использован OCR={ocrUsed}");
 
-        _logger.LogInformation(
-            "[Шаг 3/5] Запущена ML-классификация: requestId={RequestId}, файл={FileName}",
-            requestId,
-            fileName);
+        _logger.LogInformation($"[Шаг 3/5] Запущена ML-классификация: requestId={requestId}, файл={fileName}");
         var mlResult = await TryClassifyWithMlAsync(fileName, extractedText, ct);
 
-        _logger.LogInformation(
-            "[Шаг 3/5] ML-классификация завершена: requestId={RequestId}, тип={MlType}, уверенность={MlConfidence}",
-            requestId,
-            mlResult?.DocumentType ?? "<нет>",
-            mlResult?.Confidence ?? 0);
+        _logger.LogInformation($"[Шаг 3/5] ML-классификация завершена: requestId={requestId}, тип={mlResult?.DocumentType ?? "<нет>"}, уверенность={mlResult?.Confidence ?? 0}");
 
-        _logger.LogInformation(
-            "[Шаг 4/5] Подбор шаблона и формирование результата: requestId={RequestId}, файл={FileName}",
-            requestId,
-            fileName);
+        _logger.LogInformation($"[Шаг 4/5] Подбор шаблона и формирование результата: requestId={requestId}, файл={fileName}");
 
         var template = ResolveTemplate(documentTypeHint, fileName, extractedText);
         if (mlResult is not null
@@ -137,22 +104,12 @@ public class DocumentValidationService : IDocumentValidationService
             }
         }
 
-        _logger.LogDebug(
-            "Результат подбора шаблона для {FileName}: requestId={RequestId}, шаблон={Template}, mlТип={MlType}, mlУверенность={MlConfidence}",
-            fileName,
-            requestId,
-            template?.DisplayName ?? "<не_найден>",
-            mlResult?.DocumentType ?? "<нет>",
-            mlResult?.Confidence ?? 0);
+        _logger.LogDebug($"Результат подбора шаблона для {fileName}: requestId={requestId}, шаблон={template?.DisplayName ?? "<не_найден>"}, mlТип={mlResult?.DocumentType ?? "<нет>"}, mlУверенность={mlResult?.Confidence ?? 0}");
 
         var remarks = summaryOnly
             ? new List<string>()
             : BuildValidationRemarks(template, extractedText, extension, ocrUsed);
-        _logger.LogDebug(
-            "Замечания валидации сформированы для {FileName}: requestId={RequestId}, количество={RemarksCount}",
-            fileName,
-            requestId,
-            remarks.Count);
+        _logger.LogDebug($"Замечания валидации сформированы для {fileName}: requestId={requestId}, количество={remarks.Count}");
 
         var recommendations = BuildRecommendations(remarks, template?.DisplayName, ocrUsed, mlResult);
         var summary = BuildSummary(extractedText, template?.DisplayName, remarks, mlResult, summaryOnly);
@@ -163,12 +120,7 @@ public class DocumentValidationService : IDocumentValidationService
             {
                 remarks.Add(_options.TemplateNotFoundMessage);
             }
-            _logger.LogInformation(
-                "[Шаг 5/5] Валидация завершена для {FileName}: requestId={RequestId}, status=template_not_found, замечаний={RemarksCount}, время={ElapsedMs}мс",
-                fileName,
-                requestId,
-                remarks.Count,
-                sw.ElapsedMilliseconds);
+            _logger.LogInformation($"[Шаг 5/5] Валидация завершена для {fileName}: requestId={requestId}, status=template_not_found, замечаний={remarks.Count}, время={sw.ElapsedMilliseconds}мс");
 
             return new DocumentValidationResponse
             {
@@ -184,14 +136,7 @@ public class DocumentValidationService : IDocumentValidationService
         }
 
         var status = summaryOnly || remarks.Count == 0 ? "ok" : "needs_fix";
-        _logger.LogInformation(
-            "[Шаг 5/5] Валидация завершена для {FileName}: requestId={RequestId}, статус={Status}, типДокумента={DocumentType}, замечаний={RemarksCount}, время={ElapsedMs}мс",
-            fileName,
-            requestId,
-            status,
-            template.DisplayName,
-            remarks.Count,
-            sw.ElapsedMilliseconds);
+        _logger.LogInformation($"[Шаг 5/5] Валидация завершена для {fileName}: requestId={requestId}, статус={status}, типДокумента={template.DisplayName}, замечаний={remarks.Count}, время={sw.ElapsedMilliseconds}мс");
 
         return new DocumentValidationResponse
         {
@@ -220,7 +165,7 @@ public class DocumentValidationService : IDocumentValidationService
                 remarks.Add(_options.Ocr.Enabled ? _options.OcrFailedMessage : _options.PdfOcrRecommendationMessage);
             }
 
-            _logger.LogDebug("Не удалось извлечь текст из содержимого файла. Расширение={Extension}", extension);
+            _logger.LogDebug($"Не удалось извлечь текст из содержимого файла. Расширение={extension}");
 
             return remarks;
         }
@@ -236,7 +181,7 @@ public class DocumentValidationService : IDocumentValidationService
             if (!normalized.Contains(keyword.ToLowerInvariant(), StringComparison.Ordinal))
             {
                 remarks.Add($"Не найден обязательный реквизит: {keyword}.");
-                _logger.LogDebug("Отсутствует обязательное ключевое слово: {Keyword}", keyword);
+                _logger.LogDebug($"Отсутствует обязательное ключевое слово: {keyword}");
             }
         }
 
@@ -334,12 +279,7 @@ public class DocumentValidationService : IDocumentValidationService
                 }
             };
 
-            _logger.LogInformation(
-                "OCR запущен: команда={Command}, таймаут={TimeoutSeconds}с, вход={InputPath}, выход={OutputPath}",
-                _options.Ocr.Command,
-                _options.Ocr.TimeoutSeconds,
-                inputPath,
-                outputPath);
+            _logger.LogInformation($"OCR запущен: команда={_options.Ocr.Command}, таймаут={_options.Ocr.TimeoutSeconds}с, вход={inputPath}, выход={outputPath}");
 
             if (!process.Start())
             {
@@ -358,25 +298,18 @@ public class DocumentValidationService : IDocumentValidationService
 
                 if (!exitTask.IsCompleted)
                 {
-                    _logger.LogInformation(
-                        "OCR все еще выполняется: pid={Pid}, прошло={ElapsedMs}мс",
-                        process.Id,
-                        ocrSw.ElapsedMilliseconds);
+                    _logger.LogInformation($"OCR все еще выполняется: pid={process.Id}, прошло={ocrSw.ElapsedMilliseconds}мс", process.Id, ocrSw.ElapsedMilliseconds);
                 }
             }
 
             await exitTask;
 
-            _logger.LogInformation(
-                "OCR завершен: pid={Pid}, код={ExitCode}, время={ElapsedMs}мс",
-                process.Id,
-                process.ExitCode,
-                ocrSw.ElapsedMilliseconds);
+            _logger.LogInformation($"OCR завершен: pid={process.Id}, код={process.ExitCode}, время={ocrSw.ElapsedMilliseconds}мс", process.Id, process.ExitCode, ocrSw.ElapsedMilliseconds);
 
             if (process.ExitCode != 0)
             {
                 var error = await process.StandardError.ReadToEndAsync(ct);
-                _logger.LogWarning("OCR-процесс завершился с кодом {ExitCode}: {Error}", process.ExitCode, error);
+                _logger.LogWarning($"OCR-процесс завершился с кодом {process.ExitCode}: {error}");
                 return null;
             }
 
@@ -389,9 +322,7 @@ public class DocumentValidationService : IDocumentValidationService
             _logger.LogInformation("OCR завершен успешно, начинается извлечение текста из OCR-PDF");
             var ocrPdfBytes = await File.ReadAllBytesAsync(outputPath, ct);
             var ocrText = await ExtractPdfTextAsync(new MemoryStream(ocrPdfBytes), ct);
-            _logger.LogInformation(
-                "Извлечение текста из OCR-PDF завершено: длина текста={ExtractedTextLength}",
-                ocrText.Length);
+            _logger.LogInformation($"Извлечение текста из OCR-PDF завершено: длина текста={ocrText.Length}", ocrText.Length);
             return string.IsNullOrWhiteSpace(ocrText) ? null : ocrText;
         }
         catch (OperationCanceledException)
@@ -445,19 +376,65 @@ public class DocumentValidationService : IDocumentValidationService
             return null;
         }
 
-        var sample = extractedText.Length > _options.Ml.MaxInputChars
-            ? extractedText[.._options.Ml.MaxInputChars]
-            : extractedText;
+        string sample;
+        var maxChars = _options.Ml.MaxInputChars;
+        if (extractedText.Length <= maxChars)
+        {
+            sample = extractedText;
+        }
+        else
+        {
+            // Формируем сэмпл из начала / середины / конца документа
+            // Пропорции: 20% начало, 40% середина, 40% конец — суммарно ~= maxChars
+            var total = maxChars;
+            var part1Len = Math.Max(1, (int)Math.Round(total * 0.2));
+            var part2Len = Math.Max(1, (int)Math.Round(total * 0.4));
+            var part3Len = total - part1Len - part2Len;
+            if (part3Len < 1)
+            {
+                part3Len = 1;
+                part2Len = Math.Max(1, total - part1Len - part3Len);
+            }
 
-        var prompt = $@"Ты классификатор документов СЭД. Верни строго JSON без пояснений.
+            var len = extractedText.Length;
+            var part1 = extractedText.Substring(0, Math.Min(part1Len, len));
+
+            var midStart = Math.Max(0, (len - part2Len) / 2);
+            var part2 = extractedText.Substring(midStart, Math.Min(part2Len, Math.Max(0, len - midStart)));
+
+            var part3Start = Math.Max(0, len - part3Len);
+            var part3 = extractedText.Substring(part3Start, Math.Min(part3Len, Math.Max(0, len - part3Start)));
+
+            sample =
+                "[Начало документа]\n" + part1 +
+                "\n\n[Средняя часть документа]\n" + part2 +
+                "\n\n[Конец документа]\n" + part3;
+        }
+
+        var prompt = $@"Ты — интеллектуальный ассистент системы электронного документооборота фармацевтической компании Psuti-Pharms.
+Твоя задача:
+1) Определить тип документа
+2) Сформировать понятную и полезную выжимку документа
+3) Дать рекомендации при необходимости
+
+Верни строго JSON без пояснений.
 Разрешенные documentType: {string.Join(", ", allowedTypes)}.
 Формат ответа:
 {{
     ""documentType"": ""одно из разрешенных значений"",
     ""confidence"": 0.0,
-    ""summary"": ""краткая выжимка 1-2 предложения"",
+    ""summary"": ""понятная выжимка документа для сотрудника компании"",
     ""recommendations"": [""совет 1"", ""совет 2""]
 }}
+
+Требования к summary:
+- Пиши простым и понятным языком
+- Не используй канцеляризмы
+- Объясняй смысл документа, а не пересказывай его
+- Указывай важные изменения, сроки, ограничения и последствия
+- Пиши как внутренний корпоративный ассистент
+- Summary должен читаться естественно и не быть сухим
+- Допустимо 3-5 предложений
 
 Имя файла: {fileName}
 Текст документа:
@@ -465,7 +442,12 @@ public class DocumentValidationService : IDocumentValidationService
 
         try
         {
-            var raw = await _llmService.GenerateAsync(prompt, history: null, ct);
+            var raw = await _llmService.GenerateAsync(
+                prompt,
+                history: null,
+                temperature: _options.Ml.SummaryTemperature,
+                topP: _options.Ml.SummaryTopP,
+                ct: ct);
             var json = ExtractJsonObject(raw);
             if (json is null)
             {
@@ -513,7 +495,7 @@ public class DocumentValidationService : IDocumentValidationService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "ML-классификация завершилась ошибкой для файла {FileName}", fileName);
+            _logger.LogWarning(ex, $"ML-классификация завершилась ошибкой для файла {fileName}");
             return null;
         }
     }
@@ -626,9 +608,7 @@ public class DocumentValidationService : IDocumentValidationService
             var pdftotextResult = await TryExtractPdfTextWithPdftotextAsync(fileBytes, ct);
             if (!string.IsNullOrWhiteSpace(pdftotextResult))
             {
-                _logger.LogDebug(
-                    "PDF-текст извлечен через pdftotext: длина={ExtractedTextLength}",
-                    pdftotextResult.Length);
+                _logger.LogDebug($"PDF-текст извлечен через pdftotext: длина={pdftotextResult.Length}");
                 return pdftotextResult;
             }
 
@@ -663,9 +643,7 @@ public class DocumentValidationService : IDocumentValidationService
             }
 
             var fallbackText = NormalizeText(sb.ToString());
-            _logger.LogDebug(
-                "Regex-fallback извлечение PDF завершено: длина={ExtractedTextLength}",
-                fallbackText.Length);
+            _logger.LogDebug($"Regex-fallback извлечение PDF завершено: длина={fallbackText.Length}");
 
             return fallbackText;
         }
@@ -712,7 +690,7 @@ public class DocumentValidationService : IDocumentValidationService
             if (process.ExitCode != 0)
             {
                 var error = await process.StandardError.ReadToEndAsync(ct);
-                _logger.LogDebug("pdftotext завершился с кодом {ExitCode}: {Error}", process.ExitCode, error);
+                _logger.LogDebug($"pdftotext завершился с кодом {process.ExitCode}: {error}");
                 return null;
             }
 
@@ -738,7 +716,7 @@ public class DocumentValidationService : IDocumentValidationService
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Ошибка запуска pdftotext");
+            _logger.LogDebug(ex, $"Ошибка запуска pdftotext");
             return null;
         }
         finally

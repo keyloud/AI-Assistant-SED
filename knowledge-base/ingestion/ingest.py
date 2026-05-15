@@ -20,6 +20,7 @@ from typing import Any
 
 import httpx
 import time
+import math
 from docx import Document
 from PyPDF2 import PdfReader
 from tqdm import tqdm
@@ -28,6 +29,14 @@ from tqdm import tqdm
 SUPPORTED_EXTENSIONS = {".docx", ".md", ".txt", ".pdf"}
 DEFAULT_SECTION = "General"
 logger = logging.getLogger(__name__)
+
+
+def is_valid_vector(vec: list[float]) -> bool:
+    """Проверить, что вектор не содержит NaN или Inf."""
+    if not vec:
+        return False
+    return not any(math.isnan(x) or math.isinf(x) for x in vec)
+
 
 
 @dataclass(slots=True)
@@ -355,6 +364,8 @@ def embed_text(client: httpx.Client, ollama_url: str, model: str, text: str) -> 
             embedding = data.get("embedding", [])
             if not isinstance(embedding, list) or not embedding:
                 raise RuntimeError("Embedding response does not contain a valid vector")
+            if not is_valid_vector(embedding):
+                raise RuntimeError("Embedding contains NaN or Inf values")
             logger.debug("Received embedding vector with %d dimensions", len(embedding))
             return embedding
 
@@ -451,7 +462,7 @@ def main() -> None:
     parser.add_argument("--ollama-url", default="http://localhost:11434")
     parser.add_argument("--qdrant-url", default="http://localhost:6333")
     parser.add_argument("--embedding-model", default="bge-m3")
-    parser.add_argument("--chunk-size", type=int, default=300)
+    parser.add_argument("--chunk-size", type=int, default=600)
     parser.add_argument("--chunk-overlap", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--log-level", default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR)")
@@ -535,7 +546,24 @@ def main() -> None:
 
     with httpx.Client() as client:
         points: list[dict[str, Any]] = []
-        vector_size: int | None = None
+        # Probe call для определения размера вектора ДО основного loop
+        logger.info("Running probe call to determine vector dimensions...")
+        try:
+            probe_vector = embed_text(client, args.ollama_url, args.embedding_model, "test")
+            vector_size = len(probe_vector)
+            logger.info("Vector size determined: %d dimensions", vector_size)
+            ensure_collection(
+                client=client,
+                qdrant_url=args.qdrant_url,
+                collection=args.collection,
+                vector_size=vector_size,
+                recreate=args.recreate,
+            )
+        except Exception as e:
+            logger.error("Probe call failed: %s", e)
+            raise RuntimeError("Cannot determine embedding dimensions") from e
+
+        skipped_chunks = 0
 
         for chunk in tqdm(chunks, desc="Embedding chunks", unit="chunk"):
             logger.debug(
@@ -545,24 +573,28 @@ def main() -> None:
                 chunk.source_file,
                 chunk.section,
             )
-            vector = embed_text(client, args.ollama_url, args.embedding_model, chunk.content)
-            if vector_size is None:
-                vector_size = len(vector)
-                ensure_collection(
-                    client=client,
-                    qdrant_url=args.qdrant_url,
-                    collection=args.collection,
-                    vector_size=vector_size,
-                    recreate=args.recreate,
-                )
+            try:
+                vector = embed_text(client, args.ollama_url, args.embedding_model, chunk.content)
+                if len(vector) != vector_size:
+                    logger.error(
+                        "Vector size mismatch for %s: expected %d, got %d",
+                        chunk.source_file,
+                        vector_size,
+                        len(vector),
+                    )
+                    skipped_chunks += 1
+                    continue
+                points.append(to_qdrant_point(chunk, vector, now_iso))
+            except Exception as e:
+                logger.error("Skipping bad chunk %s: %s; content_preview: %s", chunk.id, e, chunk.content[:300])
+                skipped_chunks += 1
+                continue
 
-            if len(vector) != vector_size:
-                raise RuntimeError(
-                    f"Vector size mismatch for {chunk.source_file}: "
-                    f"expected {vector_size}, got {len(vector)}"
-                )
+        if not points:
+            logger.error("No valid points to upsert. Ingestion failed.")
+            sys.exit(1)
 
-            points.append(to_qdrant_point(chunk, vector, now_iso))
+        logger.info("Upserting %d points (%d chunks skipped)", len(points), skipped_chunks)
 
         upsert_points(
             client=client,

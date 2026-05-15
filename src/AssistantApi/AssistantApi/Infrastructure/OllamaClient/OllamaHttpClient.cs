@@ -39,9 +39,11 @@ public class OllamaHttpClient : ILlmService
     public Task<string> GenerateAsync(
         string prompt,
         List<ConversationMessage>? history = null,
+        double? temperature = null,
+        double? topP = null,
         CancellationToken ct = default)
     {
-        return GenerateInternalAsync(prompt, history, ct);
+        return GenerateInternalAsync(prompt, history, temperature, topP, ct);
     }
 
     /// <summary>
@@ -63,12 +65,16 @@ public class OllamaHttpClient : ILlmService
     private async Task<string> GenerateInternalAsync(
         string prompt,
         List<ConversationMessage>? history,
+        double? temperature,
+        double? topP,
         CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
         var endpoint = (_options.BaseUrl?.TrimEnd('/') ?? "http://ollama:11434") + "/api/generate";
 
         var finalPrompt = BuildPromptWithHistory(prompt, history);
+        var resolvedTemperature = temperature ?? _options.Temperature;
+        var resolvedTopP = topP ?? _options.TopP;
 
         _logger.LogInformation(
             "Генерация в Ollama запущена: модель={Model}, endpoint={Endpoint}, длина промпта={PromptLength}, элементов истории={HistoryCount}",
@@ -84,8 +90,8 @@ public class OllamaHttpClient : ILlmService
             stream = false,
             options = new
             {
-                temperature = _options.Temperature,
-                top_p = _options.TopP
+                temperature = resolvedTemperature,
+                top_p = resolvedTopP
             }
         };
 

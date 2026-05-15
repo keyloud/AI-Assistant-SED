@@ -202,7 +202,7 @@ public class ChatController : ControllerBase
                 shouldUseDocumentContext,
                 !string.IsNullOrWhiteSpace(fullDocumentContext));
 
-            var responseText = await _llmService.GenerateAsync(prompt, request.ConversationHistory, ct);
+            var responseText = await _llmService.GenerateAsync(prompt, request.ConversationHistory, ct: ct);
 
             _chatSessionStore.Upsert(sessionId, session =>
             {
@@ -484,7 +484,7 @@ public class ChatController : ControllerBase
 
         try
         {
-            var raw = await _llmService.GenerateAsync(prompt, null, ct);
+            var raw = await _llmService.GenerateAsync(prompt, history: null, ct: ct);
             var normalized = NormalizeTitle(raw);
             return string.IsNullOrWhiteSpace(normalized)
                 ? BuildFallbackTitle(firstUserMessage)

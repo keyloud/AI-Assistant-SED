@@ -53,6 +53,8 @@ public class DocumentValidationMlOptions
     public float ConfidenceThreshold { get; set; } = 0.55f;
     public bool EnableSummary { get; set; } = true;
     public int MaxInputChars { get; set; } = 4500;
+    public double? SummaryTemperature { get; set; }
+    public double? SummaryTopP { get; set; }
 }
 
 public class DocumentTemplateRule

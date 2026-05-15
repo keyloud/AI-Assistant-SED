@@ -7,6 +7,8 @@ public interface ILlmService
     Task<string> GenerateAsync(
         string prompt,
         List<ConversationMessage>? history = null,
+        double? temperature = null,
+        double? topP = null,
         CancellationToken ct = default);
 
     IAsyncEnumerable<string> GenerateStreamAsync(

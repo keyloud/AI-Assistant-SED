@@ -740,7 +740,7 @@ function DocumentDetailsView({
                           <div className="mt-4 rounded-xl border border-[#dbe1ff] bg-[#f8fbff] p-3">
                             <div className="mb-2 flex items-center gap-2 font-['Manrope'] text-xs font-bold uppercase tracking-wide text-[#0053db]">
                               <span className="material-symbols-outlined text-[16px]">travel_explore</span>
-                              Источники RAG
+                              Источники
                             </div>
                             <div className="space-y-2">
                               {message.ragSources.slice(0, 3).map((source, index) => (
