@@ -197,11 +197,21 @@ public class ChatController : ControllerBase
             var shouldUseDocumentContext =
                 request.UseAttachedDocumentContext || !string.IsNullOrWhiteSpace(request.AttachedFileContent);
             var fullDocumentContext = shouldUseDocumentContext ? sessionSnapshot.AttachedDocumentContext : null;
+            var isDocumentDrivenQuery = shouldUseDocumentContext && !string.IsNullOrWhiteSpace(fullDocumentContext);
 
             // Полный текст документа храним в сессии, а в prompt передаем управляемый фрагмент,
             // чтобы не переполнить контекст модели на очень больших документах.
             var documentContextForPrompt = BuildDocumentContextForPrompt(request.Message, fullDocumentContext);
-            var ragChunks = await _ragService.SearchAsync(request.Message, topK: 3, ct);
+            var ragChunks = isDocumentDrivenQuery
+                ? new List<AssistantApi.Models.Domain.KnowledgeChunk>()
+                : await _ragService.SearchAsync(request.Message, topK: 3, ct);
+
+            _logger.LogInformation(
+                "Маршрут запроса чата: sessionId={SessionId}, documentContext={DocumentContext}, ragEnabled={RagEnabled}",
+                sessionId,
+                isDocumentDrivenQuery,
+                ragChunks.Count > 0);
+
             var prompt = BuildAugmentedPrompt(
                 request.Message,
                 ragChunks,
@@ -256,7 +266,7 @@ public class ChatController : ControllerBase
                 ChatTitle = currentSession.Title,
                 UpdatedAt = FormatUpdatedAt(currentSession.UpdatedAtUtc),
                 Response = responseText,
-                RequestType = "KnowledgeBaseQuery",
+                RequestType = isDocumentDrivenQuery ? "DocumentContextQuery" : "KnowledgeBaseQuery",
                 ClassificationConfidence = 0.9f,
                 ValidationRemarks = new List<string>(),
                 RagSources = ragChunks
